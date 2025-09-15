@@ -1,0 +1,322 @@
+import React, { useState, useEffect, useRef } from "react";
+import io from "socket.io-client";
+import {
+  Send,
+  Bot,
+  User,
+  MoreVertical,
+  Search,
+  Paperclip,
+  Smile,
+} from "lucide-react";
+
+const socket = io.connect("http://localhost:3000");
+
+function Home() {
+  const [message, setMessage] = useState("");
+  const [chat, setChat] = useState([]);
+  const [userId, setUserId] = useState("");
+  const [isAgentThinking, setIsAgentThinking] = useState(false);
+  const [onlineUsers, setOnlineUsers] = useState(1);
+  const chatEndRef = useRef(null);
+
+  useEffect(() => {
+    socket.on("receive_message", (data) => {
+      setChat((prev) => [
+        ...prev,
+        {
+          message: data.message,
+          id: data.authorId || data.id || "Anonymous",
+          self: false,
+          author: data.author || undefined,
+          timestamp: new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        },
+      ]);
+      if (data.author === "AI Agent") {
+        setIsAgentThinking(false);
+      }
+    });
+
+    socket.on("agent_thinking", () => {
+      setIsAgentThinking(true);
+    });
+
+    socket.on("connect", () => {
+      setUserId(socket.id);
+    });
+
+    socket.on("user_count", (count) => {
+      setOnlineUsers(count);
+    });
+
+    return () => {
+      socket.off("receive_message");
+      socket.off("agent_thinking");
+      socket.off("connect");
+      socket.off("user_count");
+    };
+  }, []);
+
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [chat]);
+
+  const sendMessage = () => {
+    if (!message.trim()) return;
+    const newMessage = {
+      message,
+      id: userId || "You",
+      self: true,
+      timestamp: new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    };
+
+    setChat((prev) => [...prev, newMessage]);
+
+    if (message.match(/@agent\b/i)) {
+      setIsAgentThinking(true);
+    }
+
+    socket.emit("send_message", {
+      message,
+      authorId: userId,
+      author: "You",
+    });
+
+    setMessage("");
+  };
+
+  const MessageBubble = ({ msg, idx }) => {
+    const isAgent = msg.author === "AI Agent";
+    const isSelf = msg.self;
+
+    return (
+      <div className={`flex mb-4 ${isSelf ? "justify-end" : "justify-start"}`}>
+        <div
+          className={`max-w-xs lg:max-w-md ${isSelf ? "ml-auto" : "mr-auto"}`}
+        >
+          {!isSelf && !isAgent && (
+            <div className="text-xs text-gray-500 mb-1 ml-1">{msg.id}</div>
+          )}
+
+          <div className="flex items-end gap-2">
+            {!isSelf && !isAgent && (
+              <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-gray-200 text-gray-700 font-medium text-sm">
+                {msg.id && typeof msg.id === "string"
+                  ? msg.id.charAt(0).toUpperCase()
+                  : "U"}
+              </div>
+            )}
+
+            <div
+              className={`px-4 py-2 rounded-2xl ${
+                isSelf
+                  ? "bg-blue-600 text-white rounded-br-md"
+                  : isAgent
+                  ? "bg-gray-100 text-gray-800 border border-gray-200 rounded-bl-md"
+                  : "bg-white text-gray-800 border border-gray-200 rounded-bl-md"
+              }`}
+            >
+              <p className="text-sm">{msg.message}</p>
+            </div>
+
+            {isSelf && (
+              <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-blue-100 text-blue-700 font-medium text-sm">
+                {userId && typeof userId === "string"
+                  ? userId.charAt(0).toUpperCase()
+                  : "Y"}
+              </div>
+            )}
+          </div>
+
+          {isAgent && (
+            <div className="flex items-center mt-1 ml-1">
+              <Bot size={12} className="text-gray-400 mr-1" />
+              <span className="text-xs text-gray-500">AI Agent</span>
+            </div>
+          )}
+
+          <div className="text-xs text-gray-400 mt-1 ml-1 text-right">
+            {msg.timestamp}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex h-screen bg-gray-50">
+      {/* Sidebar */}
+      <div className="w-1/4 bg-white border-r border-gray-200 flex flex-col">
+        <div className="p-4 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <h1 className="text-xl font-semibold text-gray-800">Chat</h1>
+            <button className="p-2 rounded-full hover:bg-gray-100">
+              <MoreVertical size={18} className="text-gray-500" />
+            </button>
+          </div>
+
+          <div className="relative mt-4">
+            <Search
+              size={18}
+              className="absolute left-3 top-2.5 text-gray-400"
+            />
+            <input
+              type="text"
+              placeholder="Search conversations..."
+              className="w-full pl-10 pr-4 py-2 bg-gray-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+            />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-2">
+          {/* Chat list would go here */}
+          <div className="text-center text-gray-500 text-sm mt-4">
+            Your conversations will appear here
+          </div>
+        </div>
+
+        <div className="p-4 border-t border-gray-200 flex items-center justify-between">
+          <div className="flex items-center">
+            <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-medium">
+              {userId && typeof userId === "string"
+                ? userId.charAt(0).toUpperCase()
+                : "U"}
+            </div>
+            <div className="ml-3">
+              <p className="text-sm font-medium text-gray-800">
+                User {userId.substring(0, 6)}
+              </p>
+              <p className="text-xs text-gray-500">Online</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col">
+        {/* Chat Header */}
+        <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+          <div className="flex items-center">
+            <div className="mr-3">
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+            </div>
+            <div>
+              <h2 className="font-medium text-gray-800">General Chat</h2>
+              <p className="text-xs text-gray-500">{onlineUsers} online</p>
+            </div>
+          </div>
+
+          <div className="flex items-center">
+            <button className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+              <Search size={18} />
+            </button>
+            <button className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 ml-1">
+              <MoreVertical size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Messages Area */}
+        <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
+          {chat.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center">
+              <div className="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center mb-4">
+                <Bot size={32} className="text-gray-400" />
+              </div>
+              <h3 className="text-lg font-medium text-gray-700 mb-2">
+                Welcome to the chat!
+              </h3>
+              <p className="text-gray-500 max-w-md">
+                Start a conversation by typing a message below. Type{" "}
+                <span className="bg-gray-200 px-1.5 py-0.5 rounded text-sm">
+                  @agent
+                </span>{" "}
+                followed by your question to get help from the AI assistant.
+              </p>
+            </div>
+          ) : (
+            <div>
+              {chat.map((msg, idx) => (
+                <MessageBubble key={idx} msg={msg} idx={idx} />
+              ))}
+              <div ref={chatEndRef} />
+            </div>
+          )}
+
+          {isAgentThinking && (
+            <div className="flex justify-start mb-4">
+              <div className="max-w-xs lg:max-w-md bg-gray-100 border border-gray-200 rounded-2xl rounded-bl-md px-4 py-3">
+                <div className="flex items-center">
+                  <div className="animate-pulse flex space-x-2">
+                    <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                    <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                    <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                  </div>
+                  <span className="text-xs text-gray-500 ml-2">
+                    AI Agent is thinking...
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Input Area */}
+        <div className="bg-white border-t border-gray-200 p-4">
+          <div className="flex items-center">
+            <button className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 mr-1">
+              <Paperclip size={20} />
+            </button>
+
+            <div className="flex-1 relative">
+              <input
+                type="text"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="Type your message..."
+                className="w-full px-4 py-3 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white pr-12"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                  }
+                }}
+              />
+
+              <button className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600">
+                <Smile size={20} />
+              </button>
+            </div>
+
+            <button
+              onClick={sendMessage}
+              disabled={!message.trim()}
+              className="ml-3 p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Send size={20} />
+            </button>
+          </div>
+
+          <div className="mt-2 text-xs text-gray-500 flex justify-between">
+            <div>
+              Type{" "}
+              <span className="bg-gray-100 px-1.5 py-0.5 rounded">@agent</span>{" "}
+              to ask the AI for help
+            </div>
+            <div>{message.length}/500</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default Home;
