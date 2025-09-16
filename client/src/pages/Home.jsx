@@ -482,9 +482,14 @@ function Home() {
           <div className="flex items-end gap-2">
             {!isSelf && !isAgent && (
               <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-gray-200 text-gray-700 font-medium text-sm">
-                {msg.author && typeof msg.author === "string"
+                {/* {msg.author && typeof msg.author === "string"
                   ? msg.author.charAt(0).toUpperCase()
-                  : "U"}
+                  : "U"} */}
+                <img
+                  src={`https://picsum.photos/seed/${msg.id || "default"}/300`}
+                  alt="Profile"
+                  className="w-full h-full object-cover rounded-full border-2 border-white/50"
+                />
               </div>
             )}
 
@@ -553,9 +558,16 @@ function Home() {
 
             {isSelf && (
               <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-blue-100 text-blue-700 font-medium text-sm">
-                {userName && typeof userName === "string"
+                {/* {userName && typeof userName === "string"
                   ? userName.charAt(0).toUpperCase()
-                  : "Y"}
+                  : "Y"} */}
+                <img
+                  src={`https://picsum.photos/seed/${
+                    userAddress || "default"
+                  }/300`}
+                  alt="Profile"
+                  className="w-full h-full object-cover rounded-full border-2 border-white/50"
+                />
               </div>
             )}
           </div>
@@ -655,7 +667,14 @@ function Home() {
             <div className="flex items-center justify-between w-full">
               <div className="flex items-center">
                 <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-medium">
-                  {userName.charAt(0).toUpperCase()}
+                  {/* {userName.charAt(0).toUpperCase()} */}
+                  <img
+                    src={`https://picsum.photos/seed/${
+                      userAddress || "default"
+                    }/300`}
+                    alt="Profile"
+                    className="w-full h-full object-cover rounded-full border-2 border-white/50"
+                  />
                 </div>
                 <div className="ml-3">
                   <p className="text-sm font-medium text-gray-800">
