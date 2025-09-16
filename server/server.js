@@ -132,6 +132,12 @@ io.on('connection', (socket) => {
         socket.broadcast.emit('user_typing', data);
     });
 
+    // Handle message reactions
+    socket.on('react_to_message', (data) => {
+        // Broadcast the reaction to all clients
+        socket.broadcast.emit('message_reacted', data);
+    });
+
     socket.on('disconnect', () => {
         console.log(`User disconnected: ${socket.id}`);
         io.emit('user_count', io.engine.clientsCount);

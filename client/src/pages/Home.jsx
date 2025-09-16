@@ -10,6 +10,9 @@ import {
   Smile,
   CornerUpLeft,
   X,
+  ThumbsUp,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 
 const socket = io.connect("http://localhost:3000");
@@ -23,8 +26,26 @@ function Home() {
   const [replyingTo, setReplyingTo] = useState(null);
   const [typingUsers, setTypingUsers] = useState(new Set());
   const [isTyping, setIsTyping] = useState(false);
+  const [activeReactionMenu, setActiveReactionMenu] = useState(null);
   const typingTimeoutRef = useRef(null);
   const chatEndRef = useRef(null);
+  const reactionMenuRef = useRef(null);
+
+  // Close reaction menu when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (
+        reactionMenuRef.current &&
+        !reactionMenuRef.current.contains(event.target)
+      ) {
+        setActiveReactionMenu(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   useEffect(() => {
     socket.on("receive_message", (data) => {
@@ -41,6 +62,11 @@ function Home() {
           }),
           replyTo: data.replyTo || null,
           replyToMessage: data.replyToMessage || null,
+          messageId: data.messageId || Date.now().toString(),
+          likes: data.likes || [],
+          upvotes: data.upvotes || 0,
+          downvotes: data.downvotes || 0,
+          userReaction: null,
         },
       ]);
       if (data.author === "AI Agent") {
@@ -74,12 +100,29 @@ function Home() {
       }
     });
 
+    socket.on("message_reacted", (data) => {
+      setChat((prev) =>
+        prev.map((msg) => {
+          if (msg.messageId === data.messageId) {
+            return {
+              ...msg,
+              likes: data.likes || msg.likes,
+              upvotes: data.upvotes || msg.upvotes,
+              downvotes: data.downvotes || msg.downvotes,
+            };
+          }
+          return msg;
+        })
+      );
+    });
+
     return () => {
       socket.off("receive_message");
       socket.off("agent_thinking");
       socket.off("connect");
       socket.off("user_count");
       socket.off("user_typing");
+      socket.off("message_reacted");
     };
   }, [userId]);
 
@@ -119,9 +162,62 @@ function Home() {
     };
   }, [message, isTyping, userId]);
 
+  const handleReaction = (messageId, reactionType) => {
+    const message = chat.find((m) => m.messageId === messageId);
+    if (!message) return;
+
+    let updatedLikes = [...message.likes];
+    let upvotes = message.upvotes || 0;
+    let downvotes = message.downvotes || 0;
+
+    if (reactionType === "like") {
+      // Toggle like
+      const userLikeIndex = updatedLikes.indexOf(userId);
+      if (userLikeIndex > -1) {
+        updatedLikes.splice(userLikeIndex, 1); // Remove like
+      } else {
+        updatedLikes.push(userId); // Add like
+      }
+    } else if (reactionType === "upvote") {
+      // Toggle upvote
+      upvotes += 1;
+    } else if (reactionType === "downvote") {
+      // Toggle downvote
+      downvotes += 1;
+    }
+
+    // Update local state
+    setChat((prev) =>
+      prev.map((msg) => {
+        if (msg.messageId === messageId) {
+          return {
+            ...msg,
+            likes: reactionType === "like" ? updatedLikes : msg.likes,
+            upvotes: reactionType === "upvote" ? upvotes : msg.upvotes,
+            downvotes: reactionType === "downvote" ? downvotes : msg.downvotes,
+          };
+        }
+        return msg;
+      })
+    );
+
+    // Emit to server
+    socket.emit("react_to_message", {
+      messageId,
+      reactionType,
+      userId,
+      likes: reactionType === "like" ? updatedLikes : undefined,
+      upvotes: reactionType === "upvote" ? upvotes : undefined,
+      downvotes: reactionType === "downvote" ? downvotes : undefined,
+    });
+
+    setActiveReactionMenu(null);
+  };
+
   const sendMessage = () => {
     if (!message.trim()) return;
 
+    const messageId = Date.now().toString();
     const newMessage = {
       message,
       id: userId || "You",
@@ -132,6 +228,10 @@ function Home() {
       }),
       replyTo: replyingTo ? replyingTo.id : null,
       replyToMessage: replyingTo ? replyingTo.message : null,
+      messageId,
+      likes: [],
+      upvotes: 0,
+      downvotes: 0,
     };
 
     setChat((prev) => [...prev, newMessage]);
@@ -146,6 +246,10 @@ function Home() {
       author: "You",
       replyTo: replyingTo ? replyingTo.id : null,
       replyToMessage: replyingTo ? replyingTo.message : null,
+      messageId,
+      likes: [],
+      upvotes: 0,
+      downvotes: 0,
     });
 
     setMessage("");
@@ -186,9 +290,48 @@ function Home() {
     );
   };
 
+  const ReactionMenu = ({ messageId, position }) => {
+    if (!activeReactionMenu || activeReactionMenu !== messageId) return null;
+
+    return (
+      <div
+        ref={reactionMenuRef}
+        className="absolute bg-white shadow-lg rounded-lg p-2 flex space-x-2 z-10"
+        style={{
+          bottom: "100%",
+          left: position === "right" ? "auto" : "0",
+          right: position === "right" ? "0" : "auto",
+        }}
+      >
+        <button
+          className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+          onClick={() => handleReaction(messageId, "like")}
+          title="Like"
+        >
+          <ThumbsUp size={16} className="text-blue-500" />
+        </button>
+        <button
+          className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+          onClick={() => handleReaction(messageId, "upvote")}
+          title="Upvote"
+        >
+          <ChevronUp size={16} className="text-green-500" />
+        </button>
+        <button
+          className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+          onClick={() => handleReaction(messageId, "downvote")}
+          title="Downvote"
+        >
+          <ChevronDown size={16} className="text-red-500" />
+        </button>
+      </div>
+    );
+  };
+
   const MessageBubble = ({ msg, idx }) => {
     const isAgent = msg.author === "AI Agent";
     const isSelf = msg.self;
+    const [showReactionMenu, setShowReactionMenu] = useState(false);
 
     return (
       <div
@@ -196,7 +339,9 @@ function Home() {
         id={`message-${idx}`}
       >
         <div
-          className={`max-w-xs lg:max-w-md ${isSelf ? "ml-auto" : "mr-auto"}`}
+          className={`max-w-xs lg:max-w-md ${
+            isSelf ? "ml-auto" : "mr-auto"
+          } relative`}
         >
           {msg.replyToMessage && (
             <div className="mb-1 px-3 py-2 bg-gray-100 border-l-2 border-gray-300 rounded text-xs text-gray-600">
@@ -229,17 +374,55 @@ function Home() {
             >
               <p className="text-sm">{msg.message}</p>
 
+              {/* Reaction counts */}
+              <div className="flex items-center mt-1 space-x-2">
+                {msg.likes && msg.likes.length > 0 && (
+                  <div className="flex items-center text-xs">
+                    <ThumbsUp size={12} className="text-blue-500 mr-1" />
+                    <span>{msg.likes.length}</span>
+                  </div>
+                )}
+                {msg.upvotes > 0 && (
+                  <div className="flex items-center text-xs">
+                    <ChevronUp size={12} className="text-green-500 mr-1" />
+                    <span>{msg.upvotes}</span>
+                  </div>
+                )}
+                {msg.downvotes > 0 && (
+                  <div className="flex items-center text-xs">
+                    <ChevronDown size={12} className="text-red-500 mr-1" />
+                    <span>{msg.downvotes}</span>
+                  </div>
+                )}
+              </div>
+
               {/* Reply button - only show on hover for non-agent messages */}
               {!isAgent && (
-                <button
-                  className="absolute -right-8 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-gray-200 rounded-full hover:bg-gray-300"
-                  onClick={() =>
-                    setReplyingTo({ id: msg.id, message: msg.message })
-                  }
-                  title="Reply to this message"
-                >
-                  <CornerUpLeft size={14} />
-                </button>
+                <div className="absolute -right-10 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
+                  <button
+                    className="p-1 bg-gray-200 rounded-full hover:bg-gray-300"
+                    onClick={() =>
+                      setReplyingTo({ id: msg.id, message: msg.message })
+                    }
+                    title="Reply to this message"
+                  >
+                    <CornerUpLeft size={14} />
+                  </button>
+                  <button
+                    className="p-1 bg-gray-200 rounded-full hover:bg-gray-300"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveReactionMenu(
+                        activeReactionMenu === msg.messageId
+                          ? null
+                          : msg.messageId
+                      );
+                    }}
+                    title="React to this message"
+                  >
+                    <ThumbsUp size={14} />
+                  </button>
+                </div>
               )}
             </div>
 
@@ -262,6 +445,12 @@ function Home() {
           <div className="text-xs text-gray-400 mt-1 ml-1 text-right">
             {msg.timestamp}
           </div>
+
+          {/* Reaction menu */}
+          <ReactionMenu
+            messageId={msg.messageId}
+            position={isSelf ? "right" : "left"}
+          />
         </div>
       </div>
     );
