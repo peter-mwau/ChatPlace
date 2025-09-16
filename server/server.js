@@ -85,32 +85,39 @@ app.post('/api/agent-response', (req, res) => {
 io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
 
+    // Broadcast updated user count
+    io.emit('user_count', io.engine.clientsCount);
+
     socket.on('send_message', (data) => {
         console.log(data);
 
         // Broadcast the user's message to everyone else
-        socket.broadcast.emit('receive_message', data, socket.id);
+        socket.broadcast.emit('receive_message', {
+            ...data,
+            id: socket.id,
+            replyTo: data.replyTo || null,
+            replyToMessage: data.replyToMessage || null,
+            timestamp: new Date().toISOString() // Ensure timestamp is present
+        });
 
         // Only apply rate limiting if @agent is mentioned
         if (/@agent\b/i.test(data.message)) {
             // --- RATE LIMITING CHECK START ---
-            const userId = data.authorId; // Use the user's unique ID
+            const userId = data.authorId;
             const now = Date.now();
-            const lastRequestTime = userLastRequest.get(userId) || 0; // Get last time or 0 if never
+            const lastRequestTime = userLastRequest.get(userId) || 0;
 
             if (now - lastRequestTime < RATE_LIMIT_WINDOW_MS) {
-                // User is being rate limited
                 console.log(`Rate limit exceeded for user: ${userId}`);
-                // Optionally, send a warning message back only to this user
                 socket.emit('receive_message', {
                     message: `Please wait a moment before asking the agent again.`,
                     authorId: 'system',
-                    author: 'System'
+                    author: 'System',
+                    timestamp: new Date().toISOString()
                 });
-                return; // STOP HERE. Do not trigger the agent.
+                return;
             }
 
-            // Update the last request time for this user
             userLastRequest.set(userId, now);
             // --- RATE LIMITING CHECK END ---
 
@@ -120,8 +127,14 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Handle typing indicators
+    socket.on('typing', (data) => {
+        socket.broadcast.emit('user_typing', data);
+    });
+
     socket.on('disconnect', () => {
         console.log(`User disconnected: ${socket.id}`);
+        io.emit('user_count', io.engine.clientsCount);
     });
 });
 

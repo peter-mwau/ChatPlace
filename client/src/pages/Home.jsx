@@ -8,6 +8,8 @@ import {
   Search,
   Paperclip,
   Smile,
+  CornerUpLeft,
+  X,
 } from "lucide-react";
 
 const socket = io.connect("http://localhost:3000");
@@ -18,6 +20,10 @@ function Home() {
   const [userId, setUserId] = useState("");
   const [isAgentThinking, setIsAgentThinking] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState(1);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [typingUsers, setTypingUsers] = useState(new Set());
+  const [isTyping, setIsTyping] = useState(false);
+  const typingTimeoutRef = useRef(null);
   const chatEndRef = useRef(null);
 
   useEffect(() => {
@@ -33,6 +39,8 @@ function Home() {
             hour: "2-digit",
             minute: "2-digit",
           }),
+          replyTo: data.replyTo || null,
+          replyToMessage: data.replyToMessage || null,
         },
       ]);
       if (data.author === "AI Agent") {
@@ -52,22 +60,68 @@ function Home() {
       setOnlineUsers(count);
     });
 
+    socket.on("user_typing", (data) => {
+      if (data.userId !== userId) {
+        setTypingUsers((prev) => {
+          const newSet = new Set(prev);
+          if (data.isTyping) {
+            newSet.add(data.userId);
+          } else {
+            newSet.delete(data.userId);
+          }
+          return newSet;
+        });
+      }
+    });
+
     return () => {
       socket.off("receive_message");
       socket.off("agent_thinking");
       socket.off("connect");
       socket.off("user_count");
+      socket.off("user_typing");
     };
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     if (chatEndRef.current) {
       chatEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [chat]);
+  }, [chat, typingUsers]);
+
+  // Handle typing indicators
+  useEffect(() => {
+    if (message.trim() && !isTyping) {
+      setIsTyping(true);
+      socket.emit("typing", { isTyping: true, userId });
+    } else if (!message.trim() && isTyping) {
+      setIsTyping(false);
+      socket.emit("typing", { isTyping: false, userId });
+    }
+
+    // Clear previous timeout
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    // Set a timeout to stop showing typing after 2 seconds of inactivity
+    typingTimeoutRef.current = setTimeout(() => {
+      if (isTyping) {
+        setIsTyping(false);
+        socket.emit("typing", { isTyping: false, userId });
+      }
+    }, 2000);
+
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+    };
+  }, [message, isTyping, userId]);
 
   const sendMessage = () => {
     if (!message.trim()) return;
+
     const newMessage = {
       message,
       id: userId || "You",
@@ -76,6 +130,8 @@ function Home() {
         hour: "2-digit",
         minute: "2-digit",
       }),
+      replyTo: replyingTo ? replyingTo.id : null,
+      replyToMessage: replyingTo ? replyingTo.message : null,
     };
 
     setChat((prev) => [...prev, newMessage]);
@@ -88,9 +144,46 @@ function Home() {
       message,
       authorId: userId,
       author: "You",
+      replyTo: replyingTo ? replyingTo.id : null,
+      replyToMessage: replyingTo ? replyingTo.message : null,
     });
 
     setMessage("");
+    setReplyingTo(null);
+
+    // Stop typing indicator after sending
+    setIsTyping(false);
+    socket.emit("typing", { isTyping: false, userId });
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
+
+  const ReplyPreview = ({ replyTo, onCancel }) => {
+    if (!replyTo) return null;
+
+    return (
+      <div className="mb-2 px-3 py-2 bg-blue-50 border-l-4 border-blue-400 rounded flex items-start justify-between">
+        <div className="flex-1">
+          <div className="text-xs text-blue-600 font-medium mb-1">
+            Replying to
+          </div>
+          <div className="text-sm text-gray-700 truncate">
+            "{replyTo.message}"
+          </div>
+        </div>
+        <button
+          className="ml-2 text-gray-500 hover:text-gray-700"
+          onClick={onCancel}
+        >
+          <X size={16} />
+        </button>
+      </div>
+    );
   };
 
   const MessageBubble = ({ msg, idx }) => {
@@ -98,10 +191,20 @@ function Home() {
     const isSelf = msg.self;
 
     return (
-      <div className={`flex mb-4 ${isSelf ? "justify-end" : "justify-start"}`}>
+      <div
+        className={`flex mb-4 ${isSelf ? "justify-end" : "justify-start"}`}
+        id={`message-${idx}`}
+      >
         <div
           className={`max-w-xs lg:max-w-md ${isSelf ? "ml-auto" : "mr-auto"}`}
         >
+          {msg.replyToMessage && (
+            <div className="mb-1 px-3 py-2 bg-gray-100 border-l-2 border-gray-300 rounded text-xs text-gray-600">
+              <div className="font-medium">Replying to {msg.replyTo}</div>
+              <div className="truncate">"{msg.replyToMessage}"</div>
+            </div>
+          )}
+
           {!isSelf && !isAgent && (
             <div className="text-xs text-gray-500 mb-1 ml-1">{msg.id}</div>
           )}
@@ -116,7 +219,7 @@ function Home() {
             )}
 
             <div
-              className={`px-4 py-2 rounded-2xl ${
+              className={`px-4 py-2 rounded-2xl relative group ${
                 isSelf
                   ? "bg-blue-600 text-white rounded-br-md"
                   : isAgent
@@ -125,6 +228,19 @@ function Home() {
               }`}
             >
               <p className="text-sm">{msg.message}</p>
+
+              {/* Reply button - only show on hover for non-agent messages */}
+              {!isAgent && (
+                <button
+                  className="absolute -right-8 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-gray-200 rounded-full hover:bg-gray-300"
+                  onClick={() =>
+                    setReplyingTo({ id: msg.id, message: msg.message })
+                  }
+                  title="Reply to this message"
+                >
+                  <CornerUpLeft size={14} />
+                </button>
+              )}
             </div>
 
             {isSelf && (
@@ -145,6 +261,29 @@ function Home() {
 
           <div className="text-xs text-gray-400 mt-1 ml-1 text-right">
             {msg.timestamp}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const TypingIndicator = () => {
+    if (typingUsers.size === 0) return null;
+
+    return (
+      <div className="flex justify-start mb-4">
+        <div className="max-w-xs lg:max-w-md bg-gray-100 border border-gray-200 rounded-2xl rounded-bl-md px-4 py-3">
+          <div className="flex items-center">
+            <div className="animate-pulse flex space-x-2">
+              <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+              <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+              <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+            </div>
+            <span className="text-xs text-gray-500 ml-2">
+              {typingUsers.size === 1
+                ? "Someone is typing..."
+                : `${typingUsers.size} people are typing...`}
+            </span>
           </div>
         </div>
       </div>
@@ -247,30 +386,35 @@ function Home() {
               {chat.map((msg, idx) => (
                 <MessageBubble key={idx} msg={msg} idx={idx} />
               ))}
-              <div ref={chatEndRef} />
-            </div>
-          )}
-
-          {isAgentThinking && (
-            <div className="flex justify-start mb-4">
-              <div className="max-w-xs lg:max-w-md bg-gray-100 border border-gray-200 rounded-2xl rounded-bl-md px-4 py-3">
-                <div className="flex items-center">
-                  <div className="animate-pulse flex space-x-2">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+              <TypingIndicator />
+              {isAgentThinking && (
+                <div className="flex justify-start mb-4">
+                  <div className="max-w-xs lg:max-w-md bg-gray-100 border border-gray-200 rounded-2xl rounded-bl-md px-4 py-3">
+                    <div className="flex items-center">
+                      <div className="animate-pulse flex space-x-2">
+                        <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                        <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                        <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                      </div>
+                      <span className="text-xs text-gray-500 ml-2">
+                        AI Agent is thinking...
+                      </span>
+                    </div>
                   </div>
-                  <span className="text-xs text-gray-500 ml-2">
-                    AI Agent is thinking...
-                  </span>
                 </div>
-              </div>
+              )}
+              <div ref={chatEndRef} />
             </div>
           )}
         </div>
 
         {/* Input Area */}
         <div className="bg-white border-t border-gray-200 p-4">
+          <ReplyPreview
+            replyTo={replyingTo}
+            onCancel={() => setReplyingTo(null)}
+          />
+
           <div className="flex items-center">
             <button className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 mr-1">
               <Paperclip size={20} />
@@ -281,14 +425,9 @@ function Home() {
                 type="text"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
+                onKeyPress={handleKeyPress}
                 placeholder="Type your message..."
                 className="w-full px-4 py-3 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white pr-12"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    sendMessage();
-                  }
-                }}
               />
 
               <button className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600">
