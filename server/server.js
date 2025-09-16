@@ -12,7 +12,8 @@ app.use(express.json()); // This is required to parse JSON in the agent callback
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: 'http://localhost:5173',
+        // origin: 'http://localhost:5173',
+        origin: '*',
         methods: ['GET', 'POST'],
     },
 });
@@ -85,8 +86,18 @@ app.post('/api/agent-response', (req, res) => {
 io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
 
+    // Get user ID from auth data
+    const userId = socket.handshake.auth.userId;
+    console.log(`User connected: ${userId}`);
+
     // Broadcast updated user count
     io.emit('user_count', io.engine.clientsCount);
+
+    // Handle user joined event
+    socket.on('user_joined', (data) => {
+        console.log(`${data.userName} joined the chat`);
+        socket.broadcast.emit('user_joined', data);
+    });
 
     socket.on('send_message', (data) => {
         console.log(data);
@@ -94,7 +105,7 @@ io.on('connection', (socket) => {
         // Broadcast the user's message to everyone else
         socket.broadcast.emit('receive_message', {
             ...data,
-            id: socket.id,
+            id: userId,
             replyTo: data.replyTo || null,
             replyToMessage: data.replyToMessage || null,
             timestamp: new Date().toISOString() // Ensure timestamp is present
@@ -138,8 +149,15 @@ io.on('connection', (socket) => {
         socket.broadcast.emit('message_reacted', data);
     });
 
+    // Handle user left event
+    socket.on('user_left', (data) => {
+        console.log(`${data.userName} left the chat`);
+        socket.broadcast.emit('user_left', data);
+    });
+
     socket.on('disconnect', () => {
-        console.log(`User disconnected: ${socket.id}`);
+        console.log(`User disconnected: ${userId}`);
+        // Broadcast updated user count
         io.emit('user_count', io.engine.clientsCount);
     });
 });

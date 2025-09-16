@@ -13,23 +13,63 @@ import {
   ThumbsUp,
   ChevronUp,
   ChevronDown,
+  LogOut,
 } from "lucide-react";
+import { client } from "../client";
+import { inAppWallet } from "thirdweb/wallets";
+import {
+  ConnectButton,
+  useActiveAccount,
+  useActiveWallet,
+  useDisconnect,
+} from "thirdweb/react";
+import { defineChain } from "thirdweb/chains";
 
 const socket = io.connect("http://localhost:3000");
 
 function Home() {
   const [message, setMessage] = useState("");
   const [chat, setChat] = useState([]);
-  const [userId, setUserId] = useState("");
   const [isAgentThinking, setIsAgentThinking] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState(1);
   const [replyingTo, setReplyingTo] = useState(null);
   const [typingUsers, setTypingUsers] = useState(new Set());
   const [isTyping, setIsTyping] = useState(false);
   const [activeReactionMenu, setActiveReactionMenu] = useState(null);
+  const [userAddress, setUserAddress] = useState("");
+  const [userName, setUserName] = useState("");
   const typingTimeoutRef = useRef(null);
   const chatEndRef = useRef(null);
   const reactionMenuRef = useRef(null);
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  // ThirdWeb hooks
+  const account = useActiveAccount();
+  const { disconnect } = useDisconnect();
+  const wallet = useActiveWallet();
+
+  // Update user info when account changes
+  useEffect(() => {
+    if (account) {
+      const address = account.address;
+      setUserAddress(address);
+      // Use shortened address as display name
+      setUserName(
+        `${address.substring(0, 6)}...${address.substring(address.length - 4)}`
+      );
+
+      // Connect socket with user address as ID
+      socket.auth = { userId: address };
+      socket.connect();
+
+      // Emit user joined event
+      socket.emit("user_joined", { userId: address, userName: userName });
+    } else {
+      setUserAddress("");
+      setUserName("");
+      socket.disconnect();
+    }
+  }, [account, userName]);
 
   // Close reaction menu when clicking outside
   useEffect(() => {
@@ -54,7 +94,7 @@ function Home() {
         {
           message: data.message,
           id: data.authorId || data.id || "Anonymous",
-          self: false,
+          self: data.authorId === userAddress,
           author: data.author || undefined,
           timestamp: new Date().toLocaleTimeString([], {
             hour: "2-digit",
@@ -78,16 +118,12 @@ function Home() {
       setIsAgentThinking(true);
     });
 
-    socket.on("connect", () => {
-      setUserId(socket.id);
-    });
-
     socket.on("user_count", (count) => {
       setOnlineUsers(count);
     });
 
     socket.on("user_typing", (data) => {
-      if (data.userId !== userId) {
+      if (data.userId !== userAddress) {
         setTypingUsers((prev) => {
           const newSet = new Set(prev);
           if (data.isTyping) {
@@ -116,15 +152,66 @@ function Home() {
       );
     });
 
+    // socket.on("user_joined", (data) => {
+    //   // You could show a notification when a user joins
+    //   console.log(`${data.userName} joined the chat`);
+    // });
+
+    socket.on("user_joined", (data) => {
+      // Show a centered system notification when a user joins
+      setChat((prev) => [
+        ...prev,
+        {
+          message: `${data.userName} joined the chat`,
+          id: "system",
+          self: false,
+          author: "System",
+          timestamp: new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          messageId: Date.now().toString(),
+          likes: [],
+          upvotes: 0,
+          downvotes: 0,
+          isSystemMessage: true, // Add this flag
+        },
+      ]);
+    });
+
+    socket.on("user_left", (data) => {
+      // You could show a notification when a user leaves
+      setChat((prev) => [
+        ...prev,
+        {
+          message: `${data.userName} left the chat`,
+          id: "system",
+          self: false,
+          author: "System",
+          timestamp: new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          messageId: Date.now().toString(),
+          likes: [],
+          upvotes: 0,
+          downvotes: 0,
+          isSystemMessage: true, // Add this flag
+        },
+      ]);
+      console.log(`${data.userName} left the chat`);
+    });
+
     return () => {
       socket.off("receive_message");
       socket.off("agent_thinking");
-      socket.off("connect");
       socket.off("user_count");
       socket.off("user_typing");
       socket.off("message_reacted");
+      socket.off("user_joined");
+      socket.off("user_left");
     };
-  }, [userId]);
+  }, [userAddress]);
 
   useEffect(() => {
     if (chatEndRef.current) {
@@ -134,12 +221,12 @@ function Home() {
 
   // Handle typing indicators
   useEffect(() => {
-    if (message.trim() && !isTyping) {
+    if (message.trim() && !isTyping && userAddress) {
       setIsTyping(true);
-      socket.emit("typing", { isTyping: true, userId });
-    } else if (!message.trim() && isTyping) {
+      socket.emit("typing", { isTyping: true, userId: userAddress });
+    } else if (!message.trim() && isTyping && userAddress) {
       setIsTyping(false);
-      socket.emit("typing", { isTyping: false, userId });
+      socket.emit("typing", { isTyping: false, userId: userAddress });
     }
 
     // Clear previous timeout
@@ -149,9 +236,9 @@ function Home() {
 
     // Set a timeout to stop showing typing after 2 seconds of inactivity
     typingTimeoutRef.current = setTimeout(() => {
-      if (isTyping) {
+      if (isTyping && userAddress) {
         setIsTyping(false);
-        socket.emit("typing", { isTyping: false, userId });
+        socket.emit("typing", { isTyping: false, userId: userAddress });
       }
     }, 2000);
 
@@ -160,9 +247,33 @@ function Home() {
         clearTimeout(typingTimeoutRef.current);
       }
     };
-  }, [message, isTyping, userId]);
+  }, [message, isTyping, userAddress]);
+
+  const wallets = [
+    inAppWallet({
+      auth: { options: ["discord", "passkey", "google", "github"] },
+      metadata: {
+        name: "Chat App",
+        image: {
+          src: "/public/vite.svg",
+          width: 50,
+          height: 50,
+        },
+      },
+      executionMode: {
+        mode: "EIP7702",
+        sponsorGas: true,
+      },
+      smartAccount: {
+        chain: defineChain(1020352220),
+        sponsorGas: true,
+      },
+    }),
+  ];
 
   const handleReaction = (messageId, reactionType) => {
+    if (!userAddress) return;
+
     const message = chat.find((m) => m.messageId === messageId);
     if (!message) return;
 
@@ -171,22 +282,18 @@ function Home() {
     let downvotes = message.downvotes || 0;
 
     if (reactionType === "like") {
-      // Toggle like
-      const userLikeIndex = updatedLikes.indexOf(userId);
+      const userLikeIndex = updatedLikes.indexOf(userAddress);
       if (userLikeIndex > -1) {
-        updatedLikes.splice(userLikeIndex, 1); // Remove like
+        updatedLikes.splice(userLikeIndex, 1);
       } else {
-        updatedLikes.push(userId); // Add like
+        updatedLikes.push(userAddress);
       }
     } else if (reactionType === "upvote") {
-      // Toggle upvote
       upvotes += 1;
     } else if (reactionType === "downvote") {
-      // Toggle downvote
       downvotes += 1;
     }
 
-    // Update local state
     setChat((prev) =>
       prev.map((msg) => {
         if (msg.messageId === messageId) {
@@ -201,11 +308,10 @@ function Home() {
       })
     );
 
-    // Emit to server
     socket.emit("react_to_message", {
       messageId,
       reactionType,
-      userId,
+      userId: userAddress,
       likes: reactionType === "like" ? updatedLikes : undefined,
       upvotes: reactionType === "upvote" ? upvotes : undefined,
       downvotes: reactionType === "downvote" ? downvotes : undefined,
@@ -215,13 +321,14 @@ function Home() {
   };
 
   const sendMessage = () => {
-    if (!message.trim()) return;
+    if (!message.trim() || !userAddress) return;
 
     const messageId = Date.now().toString();
     const newMessage = {
       message,
-      id: userId || "You",
+      id: userAddress,
       self: true,
+      author: userName,
       timestamp: new Date().toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
@@ -242,8 +349,8 @@ function Home() {
 
     socket.emit("send_message", {
       message,
-      authorId: userId,
-      author: "You",
+      authorId: userAddress,
+      author: userName,
       replyTo: replyingTo ? replyingTo.id : null,
       replyToMessage: replyingTo ? replyingTo.message : null,
       messageId,
@@ -255,13 +362,12 @@ function Home() {
     setMessage("");
     setReplyingTo(null);
 
-    // Stop typing indicator after sending
     setIsTyping(false);
-    socket.emit("typing", { isTyping: false, userId });
+    socket.emit("typing", { isTyping: false, userId: userAddress });
   };
 
   const handleKeyPress = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && userAddress) {
       e.preventDefault();
       sendMessage();
     }
@@ -331,7 +437,19 @@ function Home() {
   const MessageBubble = ({ msg, idx }) => {
     const isAgent = msg.author === "AI Agent";
     const isSelf = msg.self;
-    const [showReactionMenu, setShowReactionMenu] = useState(false);
+    const isSystemMessage = msg.isSystemMessage;
+
+    if (isSystemMessage) {
+      return (
+        <div className="flex justify-center mb-4">
+          <div className="max-w-xs lg:max-w-md px-4 py-2 bg-gray-100 rounded-lg">
+            <p className="text-xs text-gray-500 text-center italic">
+              {msg.message}
+            </p>
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div
@@ -345,20 +463,27 @@ function Home() {
         >
           {msg.replyToMessage && (
             <div className="mb-1 px-3 py-2 bg-gray-100 border-l-2 border-gray-300 rounded text-xs text-gray-600">
-              <div className="font-medium">Replying to {msg.replyTo}</div>
+              <div className="font-medium">
+                Replying to{" "}
+                <span className="truncate w-[100px] bg-yellow-200/80 p-1 rounded-b-3xl">
+                  {msg.replyTo
+                    ? `${msg.replyTo.slice(0, 6)}...${msg.replyTo.slice(-4)}`
+                    : ""}
+                </span>
+              </div>
               <div className="truncate">"{msg.replyToMessage}"</div>
             </div>
           )}
 
           {!isSelf && !isAgent && (
-            <div className="text-xs text-gray-500 mb-1 ml-1">{msg.id}</div>
+            <div className="text-xs text-gray-500 mb-1 ml-1">{msg.author}</div>
           )}
 
           <div className="flex items-end gap-2">
             {!isSelf && !isAgent && (
               <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-gray-200 text-gray-700 font-medium text-sm">
-                {msg.id && typeof msg.id === "string"
-                  ? msg.id.charAt(0).toUpperCase()
+                {msg.author && typeof msg.author === "string"
+                  ? msg.author.charAt(0).toUpperCase()
                   : "U"}
               </div>
             )}
@@ -397,7 +522,7 @@ function Home() {
               </div>
 
               {/* Reply button - only show on hover for non-agent messages */}
-              {!isAgent && (
+              {!isAgent && userAddress && (
                 <div className="absolute -right-10 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
                   <button
                     className="p-1 bg-gray-200 rounded-full hover:bg-gray-300"
@@ -428,8 +553,8 @@ function Home() {
 
             {isSelf && (
               <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-blue-100 text-blue-700 font-medium text-sm">
-                {userId && typeof userId === "string"
-                  ? userId.charAt(0).toUpperCase()
+                {userName && typeof userName === "string"
+                  ? userName.charAt(0).toUpperCase()
                   : "Y"}
               </div>
             )}
@@ -447,10 +572,12 @@ function Home() {
           </div>
 
           {/* Reaction menu */}
-          <ReactionMenu
-            messageId={msg.messageId}
-            position={isSelf ? "right" : "left"}
-          />
+          {userAddress && (
+            <ReactionMenu
+              messageId={msg.messageId}
+              position={isSelf ? "right" : "left"}
+            />
+          )}
         </div>
       </div>
     );
@@ -479,10 +606,22 @@ function Home() {
     );
   };
 
+  const handleDisconnect = () => {
+    try {
+      disconnect(wallet);
+      socket.emit("user_left", { userId: userAddress, userName });
+      socket.disconnect(); // <-- Add this line
+      setUserAddress("");
+      setUserName("");
+    } catch (err) {
+      console.error("Failed to disconnect:", err);
+    }
+  };
+
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Sidebar */}
-      <div className="w-1/4 bg-white border-r border-gray-200 flex flex-col">
+      <div className="w-1/4 bg-white border-r border-gray-200 lg:flex flex-col hidden md:block">
         <div className="p-4 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <h1 className="text-xl font-semibold text-gray-800">Chat</h1>
@@ -512,19 +651,34 @@ function Home() {
         </div>
 
         <div className="p-4 border-t border-gray-200 flex items-center justify-between">
-          <div className="flex items-center">
-            <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-medium">
-              {userId && typeof userId === "string"
-                ? userId.charAt(0).toUpperCase()
-                : "U"}
+          {userAddress ? (
+            <div className="flex items-center justify-between w-full">
+              <div className="flex items-center">
+                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-medium">
+                  {userName.charAt(0).toUpperCase()}
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-800">
+                    {userName}
+                  </p>
+                  <p className="text-xs text-gray-500">Connected</p>
+                </div>
+              </div>
+              <button
+                onClick={handleDisconnect}
+                className="p-2 text-gray-500 hover:cursor-pointer hover:text-red-500 hover:bg-red-50 rounded-full"
+                title="Disconnect"
+              >
+                <LogOut size={16} />
+              </button>
             </div>
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-800">
-                User {userId.substring(0, 6)}
-              </p>
-              <p className="text-xs text-gray-500">Online</p>
-            </div>
-          </div>
+          ) : (
+            <ConnectButton
+              client={client}
+              wallets={wallets}
+              connectModal={{ size: "wide" }}
+            />
+          )}
         </div>
       </div>
 
@@ -546,15 +700,54 @@ function Home() {
             <button className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
               <Search size={18} />
             </button>
-            <button className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 ml-1">
-              <MoreVertical size={18} />
-            </button>
+            <div className="flex items-center relative">
+              <button
+                className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 ml-1"
+                onClick={() => setShowDropdown((prev) => !prev)}
+              >
+                <MoreVertical size={18} />
+              </button>
+              {showDropdown && (
+                <div className="absolute right-0 top-10 bg-white shadow-lg rounded-lg py-2 z-20 min-w-[120px]">
+                  {userAddress && (
+                    <button
+                      onClick={() => {
+                        handleDisconnect();
+                        setShowDropdown(false);
+                      }}
+                      className="w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100"
+                    >
+                      Disconnect
+                    </button>
+                  )}
+                  {/* Add more dropdown items here if needed */}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
-          {chat.length === 0 ? (
+          {!userAddress ? (
+            <div className="h-full flex flex-col items-center justify-center text-center">
+              <div className="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center mb-4">
+                <User size={32} className="text-gray-400" />
+              </div>
+              <h3 className="text-lg font-medium text-gray-700 mb-2">
+                Connect your wallet to chat
+              </h3>
+              <p className="text-gray-500 max-w-md mb-4">
+                Please connect your wallet to start chatting with others and use
+                the AI assistant.
+              </p>
+              <ConnectButton
+                client={client}
+                wallets={wallets}
+                connectModal={{ size: "wide" }}
+              />
+            </div>
+          ) : chat.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center">
               <div className="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center mb-4">
                 <Bot size={32} className="text-gray-400" />
@@ -598,50 +791,55 @@ function Home() {
         </div>
 
         {/* Input Area */}
-        <div className="bg-white border-t border-gray-200 p-4">
-          <ReplyPreview
-            replyTo={replyingTo}
-            onCancel={() => setReplyingTo(null)}
-          />
+        {userAddress && (
+          <div className="bg-white border-t border-gray-200 p-4">
+            <ReplyPreview
+              replyTo={replyingTo}
+              onCancel={() => setReplyingTo(null)}
+            />
 
-          <div className="flex items-center">
-            <button className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 mr-1">
-              <Paperclip size={20} />
-            </button>
+            <div className="flex items-center">
+              <button className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 mr-1">
+                <Paperclip size={20} />
+              </button>
 
-            <div className="flex-1 relative">
-              <input
-                type="text"
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder="Type your message..."
-                className="w-full px-4 py-3 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white pr-12"
-              />
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder="Type your message..."
+                  className="w-full px-4 py-3 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white pr-12"
+                  disabled={!userAddress}
+                />
 
-              <button className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600">
-                <Smile size={20} />
+                <button className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600">
+                  <Smile size={20} />
+                </button>
+              </div>
+
+              <button
+                onClick={sendMessage}
+                disabled={!message.trim() || !userAddress}
+                className="ml-3 p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Send size={20} />
               </button>
             </div>
 
-            <button
-              onClick={sendMessage}
-              disabled={!message.trim()}
-              className="ml-3 p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Send size={20} />
-            </button>
-          </div>
-
-          <div className="mt-2 text-xs text-gray-500 flex justify-between">
-            <div>
-              Type{" "}
-              <span className="bg-gray-100 px-1.5 py-0.5 rounded">@agent</span>{" "}
-              to ask the AI for help
+            <div className="mt-2 text-xs text-gray-500 flex justify-between">
+              <div>
+                Type{" "}
+                <span className="bg-gray-100 px-1.5 py-0.5 rounded">
+                  @agent
+                </span>{" "}
+                to ask the AI for help
+              </div>
+              <div>{message.length}/500</div>
             </div>
-            <div>{message.length}/500</div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
