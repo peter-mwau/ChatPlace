@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import io from "socket.io-client";
 import {
   Send,
@@ -16,6 +16,7 @@ import {
   LogOut,
   Sun,
   Moon,
+  Copy,
 } from "lucide-react";
 import { client } from "../client";
 import { inAppWallet } from "thirdweb/wallets";
@@ -28,24 +29,67 @@ import {
 import { defineChain } from "thirdweb/chains";
 import { useTheme } from "../contexts/themeContext";
 
-const socket = io.connect("http://localhost:3000");
+const socket = io("http://localhost:3000", { autoConnect: false });
+const GENERAL_CONVERSATION_ID = "general";
+const EMPTY_TYPING_USERS = new Set();
+
+const formatAddress = (address) => {
+  if (!address || typeof address !== "string") return "Unknown";
+  if (address.length <= 10) return address;
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+};
+
+const parseDmMembers = (roomId) => {
+  if (!roomId || typeof roomId !== "string") return [];
+  const parts = roomId.split(":");
+  if (parts.length >= 3) {
+    return [parts[1], parts[2]];
+  }
+  return [];
+};
 
 function Home() {
   const [message, setMessage] = useState("");
-  const [chat, setChat] = useState([]);
+  const [conversations, setConversations] = useState([
+    {
+      id: GENERAL_CONVERSATION_ID,
+      type: "general",
+      title: "General Chat",
+      members: [],
+    },
+  ]);
+  const [activeConversationId, setActiveConversationId] = useState(
+    GENERAL_CONVERSATION_ID,
+  );
+  const [messagesByConversation, setMessagesByConversation] = useState({
+    [GENERAL_CONVERSATION_ID]: [],
+  });
   const [isAgentThinking, setIsAgentThinking] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState(1);
   const [replyingTo, setReplyingTo] = useState(null);
-  const [typingUsers, setTypingUsers] = useState(new Set());
+  const [typingUsersByConversation, setTypingUsersByConversation] = useState(
+    {},
+  );
   const [isTyping, setIsTyping] = useState(false);
   const [activeReactionMenu, setActiveReactionMenu] = useState(null);
   const [userAddress, setUserAddress] = useState("");
   const [userName, setUserName] = useState("");
+  const [copiedAddress, setCopiedAddress] = useState("");
+  const [dmTarget, setDmTarget] = useState("");
+  const [dmError, setDmError] = useState("");
   const typingTimeoutRef = useRef(null);
   const chatEndRef = useRef(null);
   const reactionMenuRef = useRef(null);
   const [showDropdown, setShowDropdown] = useState(false);
   const { darkMode, toggleTheme } = useTheme();
+  const activeMessages = useMemo(
+    () => messagesByConversation[activeConversationId] || [],
+    [messagesByConversation, activeConversationId],
+  );
+  const activeTypingUsers = useMemo(
+    () => typingUsersByConversation[activeConversationId] || EMPTY_TYPING_USERS,
+    [typingUsersByConversation, activeConversationId],
+  );
 
   // ThirdWeb hooks
   const account = useActiveAccount();
@@ -64,15 +108,37 @@ function Home() {
 
       // Connect socket with user address as ID
       socket.auth = { userId: address };
-      socket.connect();
+      if (!socket.connected) {
+        socket.connect();
+      }
 
-      // Emit user joined event
-      socket.emit("user_joined", { userId: address, userName: userName });
+      const handleConnect = () => {
+        socket.emit("user_joined", { userId: address, userName: userName });
+      };
+
+      socket.off("connect", handleConnect);
+      socket.on("connect", handleConnect);
     } else {
       setUserAddress("");
       setUserName("");
+      setConversations([
+        {
+          id: GENERAL_CONVERSATION_ID,
+          type: "general",
+          title: "General Chat",
+          members: [],
+        },
+      ]);
+      setActiveConversationId(GENERAL_CONVERSATION_ID);
+      setMessagesByConversation({ [GENERAL_CONVERSATION_ID]: [] });
+      setTypingUsersByConversation({});
+      setDmTarget("");
+      setDmError("");
       socket.disconnect();
     }
+    return () => {
+      socket.off("connect");
+    };
   }, [account, userName]);
 
   // Close reaction menu when clicking outside
@@ -93,28 +159,54 @@ function Home() {
 
   useEffect(() => {
     socket.on("receive_message", (data) => {
-      setChat((prev) => [
-        ...prev,
-        {
-          message: data.message,
-          id: data.authorId || data.id || "Anonymous",
-          self: data.authorId === userAddress,
-          author: data.author || undefined,
-          timestamp: new Date().toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-          replyTo: data.replyTo || null,
-          replyToMessage: data.replyToMessage || null,
-          messageId: data.messageId || Date.now().toString(),
-          likes: data.likes || [],
-          upvotes: data.upvotes || 0,
-          downvotes: data.downvotes || 0,
-          userReaction: null,
-        },
-      ]);
+      const conversationId = data.conversationId || GENERAL_CONVERSATION_ID;
+      const newMessage = {
+        message: data.message,
+        id: data.authorId || data.id || "Anonymous",
+        self: data.authorId === userAddress,
+        author: data.author || undefined,
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        replyTo: data.replyTo || null,
+        replyToMessage: data.replyToMessage || null,
+        messageId: data.messageId || Date.now().toString(),
+        likes: data.likes || [],
+        upvotes: data.upvotes || 0,
+        downvotes: data.downvotes || 0,
+        userReaction: null,
+        conversationId,
+      };
+
+      setMessagesByConversation((prev) => {
+        const existing = prev[conversationId] || [];
+        return {
+          ...prev,
+          [conversationId]: [...existing, newMessage],
+        };
+      });
+
       if (data.author === "AI Agent") {
         setIsAgentThinking(false);
+      }
+
+      if (conversationId.startsWith("dm:") && userAddress) {
+        setConversations((prev) => {
+          if (prev.some((conv) => conv.id === conversationId)) {
+            return prev;
+          }
+          const members = parseDmMembers(conversationId);
+          return [
+            ...prev,
+            {
+              id: conversationId,
+              type: "dm",
+              title: "Direct Message",
+              members,
+            },
+          ];
+        });
       }
     });
 
@@ -127,33 +219,44 @@ function Home() {
     });
 
     socket.on("user_typing", (data) => {
+      const conversationId = data.conversationId || GENERAL_CONVERSATION_ID;
       if (data.userId !== userAddress) {
-        setTypingUsers((prev) => {
-          const newSet = new Set(prev);
+        setTypingUsersByConversation((prev) => {
+          const currentSet = prev[conversationId]
+            ? new Set(prev[conversationId])
+            : new Set();
           if (data.isTyping) {
-            newSet.add(data.userId);
+            currentSet.add(data.userId);
           } else {
-            newSet.delete(data.userId);
+            currentSet.delete(data.userId);
           }
-          return newSet;
+          return {
+            ...prev,
+            [conversationId]: currentSet,
+          };
         });
       }
     });
 
     socket.on("message_reacted", (data) => {
-      setChat((prev) =>
-        prev.map((msg) => {
-          if (msg.messageId === data.messageId) {
-            return {
-              ...msg,
-              likes: data.likes || msg.likes,
-              upvotes: data.upvotes || msg.upvotes,
-              downvotes: data.downvotes || msg.downvotes,
-            };
-          }
-          return msg;
-        }),
-      );
+      const conversationId = data.conversationId || GENERAL_CONVERSATION_ID;
+      setMessagesByConversation((prev) => {
+        const existing = prev[conversationId] || [];
+        return {
+          ...prev,
+          [conversationId]: existing.map((msg) => {
+            if (msg.messageId === data.messageId) {
+              return {
+                ...msg,
+                likes: data.likes || msg.likes,
+                upvotes: data.upvotes || msg.upvotes,
+                downvotes: data.downvotes || msg.downvotes,
+              };
+            }
+            return msg;
+          }),
+        };
+      });
     });
 
     // socket.on("user_joined", (data) => {
@@ -162,48 +265,92 @@ function Home() {
     // });
 
     socket.on("user_joined", (data) => {
-      // Show a centered system notification when a user joins
-      setChat((prev) => [
-        ...prev,
-        {
-          message: `${data.userName} joined the chat`,
-          id: "system",
-          self: false,
-          author: "System",
-          timestamp: new Date().toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-          messageId: Date.now().toString(),
-          likes: [],
-          upvotes: 0,
-          downvotes: 0,
-          isSystemMessage: true, // Add this flag
-        },
-      ]);
+      const newMessage = {
+        message: `${data.userName} joined the chat`,
+        id: "system",
+        self: false,
+        author: "System",
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        messageId: Date.now().toString(),
+        likes: [],
+        upvotes: 0,
+        downvotes: 0,
+        isSystemMessage: true,
+        conversationId: GENERAL_CONVERSATION_ID,
+      };
+
+      setMessagesByConversation((prev) => {
+        const existing = prev[GENERAL_CONVERSATION_ID] || [];
+        return {
+          ...prev,
+          [GENERAL_CONVERSATION_ID]: [...existing, newMessage],
+        };
+      });
     });
 
     socket.on("user_left", (data) => {
-      // You could show a notification when a user leaves
-      setChat((prev) => [
-        ...prev,
-        {
-          message: `${data.userName} left the chat`,
-          id: "system",
-          self: false,
-          author: "System",
-          timestamp: new Date().toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-          messageId: Date.now().toString(),
-          likes: [],
-          upvotes: 0,
-          downvotes: 0,
-          isSystemMessage: true, // Add this flag
-        },
-      ]);
+      const newMessage = {
+        message: `${data.userName} left the chat`,
+        id: "system",
+        self: false,
+        author: "System",
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        messageId: Date.now().toString(),
+        likes: [],
+        upvotes: 0,
+        downvotes: 0,
+        isSystemMessage: true,
+        conversationId: GENERAL_CONVERSATION_ID,
+      };
+
+      setMessagesByConversation((prev) => {
+        const existing = prev[GENERAL_CONVERSATION_ID] || [];
+        return {
+          ...prev,
+          [GENERAL_CONVERSATION_ID]: [...existing, newMessage],
+        };
+      });
       console.log(`${data.userName} left the chat`);
+    });
+
+    socket.on("dm_ready", (data) => {
+      const { roomId, members } = data || {};
+      if (!roomId) return;
+
+      setConversations((prev) => {
+        if (prev.some((conv) => conv.id === roomId)) {
+          return prev;
+        }
+        const dmMembers = members?.length ? members : parseDmMembers(roomId);
+        return [
+          ...prev,
+          {
+            id: roomId,
+            type: "dm",
+            title: "Direct Message",
+            members: dmMembers,
+          },
+        ];
+      });
+
+      setMessagesByConversation((prev) => ({
+        ...prev,
+        [roomId]: prev[roomId] || [],
+      }));
+
+      setActiveConversationId(roomId);
+      setDmTarget("");
+      setDmError("");
+    });
+
+    socket.on("dm_error", (data) => {
+      setDmError(data?.message || "Unable to start a direct message.");
     });
 
     return () => {
@@ -214,6 +361,8 @@ function Home() {
       socket.off("message_reacted");
       socket.off("user_joined");
       socket.off("user_left");
+      socket.off("dm_ready");
+      socket.off("dm_error");
     };
   }, [userAddress]);
 
@@ -221,16 +370,24 @@ function Home() {
     if (chatEndRef.current) {
       chatEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [chat, typingUsers]);
+  }, [activeMessages, activeTypingUsers]);
 
   // Handle typing indicators
   useEffect(() => {
     if (message.trim() && !isTyping && userAddress) {
       setIsTyping(true);
-      socket.emit("typing", { isTyping: true, userId: userAddress });
+      socket.emit("typing", {
+        isTyping: true,
+        userId: userAddress,
+        conversationId: activeConversationId,
+      });
     } else if (!message.trim() && isTyping && userAddress) {
       setIsTyping(false);
-      socket.emit("typing", { isTyping: false, userId: userAddress });
+      socket.emit("typing", {
+        isTyping: false,
+        userId: userAddress,
+        conversationId: activeConversationId,
+      });
     }
 
     // Clear previous timeout
@@ -242,7 +399,11 @@ function Home() {
     typingTimeoutRef.current = setTimeout(() => {
       if (isTyping && userAddress) {
         setIsTyping(false);
-        socket.emit("typing", { isTyping: false, userId: userAddress });
+        socket.emit("typing", {
+          isTyping: false,
+          userId: userAddress,
+          conversationId: activeConversationId,
+        });
       }
     }, 2000);
 
@@ -251,7 +412,7 @@ function Home() {
         clearTimeout(typingTimeoutRef.current);
       }
     };
-  }, [message, isTyping, userAddress]);
+  }, [message, isTyping, userAddress, activeConversationId]);
 
   const wallets = [
     inAppWallet({
@@ -275,10 +436,17 @@ function Home() {
     }),
   ];
 
+  useEffect(() => {
+    setReplyingTo(null);
+    setActiveReactionMenu(null);
+    setIsTyping(false);
+    setIsAgentThinking(false);
+  }, [activeConversationId]);
+
   const handleReaction = (messageId, reactionType) => {
     if (!userAddress) return;
 
-    const message = chat.find((m) => m.messageId === messageId);
+    const message = activeMessages.find((m) => m.messageId === messageId);
     if (!message) return;
 
     let updatedLikes = [...message.likes];
@@ -298,21 +466,27 @@ function Home() {
       downvotes += 1;
     }
 
-    setChat((prev) =>
-      prev.map((msg) => {
-        if (msg.messageId === messageId) {
-          return {
-            ...msg,
-            likes: reactionType === "like" ? updatedLikes : msg.likes,
-            upvotes: reactionType === "upvote" ? upvotes : msg.upvotes,
-            downvotes: reactionType === "downvote" ? downvotes : msg.downvotes,
-          };
-        }
-        return msg;
-      }),
-    );
+    setMessagesByConversation((prev) => {
+      const existing = prev[activeConversationId] || [];
+      return {
+        ...prev,
+        [activeConversationId]: existing.map((msg) => {
+          if (msg.messageId === messageId) {
+            return {
+              ...msg,
+              likes: reactionType === "like" ? updatedLikes : msg.likes,
+              upvotes: reactionType === "upvote" ? upvotes : msg.upvotes,
+              downvotes:
+                reactionType === "downvote" ? downvotes : msg.downvotes,
+            };
+          }
+          return msg;
+        }),
+      };
+    });
 
     socket.emit("react_to_message", {
+      conversationId: activeConversationId,
       messageId,
       reactionType,
       userId: userAddress,
@@ -343,11 +517,21 @@ function Home() {
       likes: [],
       upvotes: 0,
       downvotes: 0,
+      conversationId: activeConversationId,
     };
 
-    setChat((prev) => [...prev, newMessage]);
+    setMessagesByConversation((prev) => {
+      const existing = prev[activeConversationId] || [];
+      return {
+        ...prev,
+        [activeConversationId]: [...existing, newMessage],
+      };
+    });
 
-    if (message.match(/@agent\b/i)) {
+    if (
+      activeConversationId === GENERAL_CONVERSATION_ID &&
+      message.match(/@agent\b/i)
+    ) {
       setIsAgentThinking(true);
     }
 
@@ -361,13 +545,18 @@ function Home() {
       likes: [],
       upvotes: 0,
       downvotes: 0,
+      conversationId: activeConversationId,
     });
 
     setMessage("");
     setReplyingTo(null);
 
     setIsTyping(false);
-    socket.emit("typing", { isTyping: false, userId: userAddress });
+    socket.emit("typing", {
+      isTyping: false,
+      userId: userAddress,
+      conversationId: activeConversationId,
+    });
   };
 
   const handleKeyPress = (e) => {
@@ -480,8 +669,17 @@ function Home() {
           )}
 
           {!isSelf && !isAgent && (
-            <div className="text-xs text-slate-500 dark:text-slate-400 mb-1 ml-1">
-              {msg.author}
+            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mb-1 ml-1">
+              <span>{msg.author}</span>
+              <button
+                onClick={() => handleCopyAddress(msg.id)}
+                className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                title="Copy address"
+                type="button"
+              >
+                <Copy size={12} />
+                {copiedAddress === msg.id ? "Copied" : "Copy"}
+              </button>
             </div>
           )}
 
@@ -604,7 +802,7 @@ function Home() {
   };
 
   const TypingIndicator = () => {
-    if (typingUsers.size === 0) return null;
+    if (activeTypingUsers.size === 0) return null;
 
     return (
       <div className="flex justify-start mb-4">
@@ -616,9 +814,9 @@ function Home() {
               <div className="w-2 h-2 bg-slate-400 dark:bg-slate-500 rounded-full"></div>
             </div>
             <span className="text-xs text-slate-500 dark:text-slate-400 ml-2">
-              {typingUsers.size === 1
+              {activeTypingUsers.size === 1
                 ? "Someone is typing..."
-                : `${typingUsers.size} people are typing...`}
+                : `${activeTypingUsers.size} people are typing...`}
             </span>
           </div>
         </div>
@@ -637,6 +835,77 @@ function Home() {
       console.error("Failed to disconnect:", err);
     }
   };
+
+  const handleStartDm = () => {
+    if (!userAddress) {
+      setDmError("Connect your wallet first.");
+      return;
+    }
+
+    const target = dmTarget.trim();
+    if (!target) {
+      setDmError("Enter a wallet address.");
+      return;
+    }
+
+    if (target === userAddress) {
+      setDmError("You cannot DM yourself.");
+      return;
+    }
+
+    setDmError("");
+    socket.emit("start_dm", { targetUserId: target });
+  };
+
+  const handleCopyAddress = async (address) => {
+    if (!address) return;
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopiedAddress(address);
+      setTimeout(() => setCopiedAddress(""), 1500);
+    } catch (error) {
+      console.error("Failed to copy address:", error);
+    }
+  };
+
+  const getConversationTitle = (conversation) => {
+    if (!conversation) return "Conversation";
+    if (conversation.type === "general") return "General Chat";
+
+    const members = conversation.members?.length
+      ? conversation.members
+      : parseDmMembers(conversation.id);
+    const otherMember = members.find((member) => member !== userAddress);
+    return otherMember
+      ? `DM with ${formatAddress(otherMember)}`
+      : "Direct Message";
+  };
+
+  const getConversationListMeta = (conversation) => {
+    if (!conversation || conversation.type === "general") {
+      return {
+        title: "General Chat",
+        subtitle: "Public room",
+        avatarSeed: "general",
+      };
+    }
+
+    const members = conversation.members?.length
+      ? conversation.members
+      : parseDmMembers(conversation.id);
+    const otherMember = members.find((member) => member !== userAddress);
+
+    return {
+      title: otherMember ? formatAddress(otherMember) : "Direct Message",
+      subtitle: "Direct Message",
+      avatarSeed: otherMember || conversation.id,
+    };
+  };
+
+  const isGeneralActive = activeConversationId === GENERAL_CONVERSATION_ID;
+  const activeConversation = conversations.find(
+    (conversation) => conversation.id === activeConversationId,
+  );
 
   return (
     <div className="flex min-h-[100svh] md:min-h-screen bg-gradient-to-br from-slate-50 via-slate-50 to-sky-50 text-slate-900 dark:from-slate-950 dark:via-slate-950 dark:to-slate-900 dark:text-slate-100 transition-colors duration-300">
@@ -666,12 +935,79 @@ function Home() {
               className="w-full pl-10 pr-4 py-2 bg-slate-100/70 dark:bg-slate-800/60 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white/90 dark:focus:bg-slate-800"
             />
           </div>
+
+          <div className="mt-4">
+            <div className="text-[11px] uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              Start a DM
+            </div>
+            <div className="flex items-center gap-2 mt-2">
+              <input
+                type="text"
+                value={dmTarget}
+                onChange={(e) => setDmTarget(e.target.value)}
+                placeholder="Wallet address"
+                className="flex-1 px-3 py-2 bg-slate-100/70 dark:bg-slate-800/60 rounded-lg text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+              <button
+                onClick={handleStartDm}
+                className="px-3 py-2 text-xs font-medium bg-sky-600 text-white rounded-lg hover:bg-sky-700 dark:hover:bg-sky-500"
+              >
+                DM
+              </button>
+            </div>
+            {dmError && (
+              <div className="mt-2 text-xs text-rose-500">{dmError}</div>
+            )}
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2">
-          {/* Chat list would go here */}
-          <div className="text-center text-slate-500 dark:text-slate-400 text-sm mt-4">
-            Your conversations will appear here
+          <div className="px-2 py-3">
+            <div className="text-[11px] uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">
+              Conversations
+            </div>
+            {conversations.map((conversation) => {
+              const meta = getConversationListMeta(conversation);
+              const isActive = activeConversationId === conversation.id;
+
+              return (
+                <button
+                  key={conversation.id}
+                  onClick={() => setActiveConversationId(conversation.id)}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                    isActive
+                      ? "bg-sky-600 text-white"
+                      : "text-slate-700 dark:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-slate-800/70"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-9 h-9 rounded-full overflow-hidden border-2 ${
+                        isActive
+                          ? "border-sky-200/60"
+                          : "border-white/60 dark:border-slate-900/50"
+                      }`}
+                    >
+                      <img
+                        src={`https://picsum.photos/seed/${meta.avatarSeed}/120`}
+                        alt="Conversation avatar"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{meta.title}</div>
+                      <div
+                        className={`text-xs truncate ${
+                          isActive ? "text-white/80" : "text-slate-400"
+                        }`}
+                      >
+                        {meta.subtitle}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -690,9 +1026,20 @@ function Home() {
                   />
                 </div>
                 <div className="ml-3">
-                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                    {userName}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                      {userName}
+                    </p>
+                    <button
+                      onClick={() => handleCopyAddress(userAddress)}
+                      className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      title="Copy your address"
+                      type="button"
+                    >
+                      <Copy size={12} />
+                      {copiedAddress === userAddress ? "Copied" : "Copy"}
+                    </button>
+                  </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     Connected
                   </p>
@@ -726,11 +1073,17 @@ function Home() {
             </div>
             <div>
               <h2 className="font-medium text-slate-900 dark:text-slate-100">
-                General Chat
+                {getConversationTitle(activeConversation)}
               </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {onlineUsers} online
-              </p>
+              {isGeneralActive ? (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {onlineUsers} online
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Direct Message
+                </p>
+              )}
             </div>
           </div>
 
@@ -792,29 +1145,35 @@ function Home() {
                 connectModal={{ size: "wide" }}
               />
             </div>
-          ) : chat.length === 0 ? (
+          ) : activeMessages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center">
               <div className="w-16 h-16 rounded-full bg-white/80 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 flex items-center justify-center mb-4">
                 <Bot size={32} className="text-slate-400" />
               </div>
               <h3 className="text-lg font-medium text-slate-700 dark:text-slate-200 mb-2">
-                Welcome to the chat!
+                {isGeneralActive ? "Welcome to the chat!" : "No messages yet"}
               </h3>
               <p className="text-slate-500 dark:text-slate-400 max-w-md">
-                Start a conversation by typing a message below. Type{" "}
-                <span className="bg-slate-200/70 dark:bg-slate-800/70 px-1.5 py-0.5 rounded text-sm">
-                  @agent
-                </span>{" "}
-                followed by your question to get help from the AI assistant.
+                {isGeneralActive ? (
+                  <>
+                    Start a conversation by typing a message below. Type{" "}
+                    <span className="bg-slate-200/70 dark:bg-slate-800/70 px-1.5 py-0.5 rounded text-sm">
+                      @agent
+                    </span>{" "}
+                    followed by your question to get help from the AI assistant.
+                  </>
+                ) : (
+                  "Start the conversation by sending the first message."
+                )}
               </p>
             </div>
           ) : (
             <div>
-              {chat.map((msg, idx) => (
+              {activeMessages.map((msg, idx) => (
                 <MessageBubble key={idx} msg={msg} idx={idx} />
               ))}
               <TypingIndicator />
-              {isAgentThinking && (
+              {isGeneralActive && isAgentThinking && (
                 <div className="flex justify-start mb-4">
                   <div className="max-w-[85%] sm:max-w-md bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-700/70 rounded-2xl rounded-bl-md px-4 py-3 backdrop-blur">
                     <div className="flex items-center">
