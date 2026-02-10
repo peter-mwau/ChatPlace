@@ -14,6 +14,8 @@ import {
   ChevronUp,
   ChevronDown,
   LogOut,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { client } from "../client";
 import { inAppWallet } from "thirdweb/wallets";
@@ -24,6 +26,7 @@ import {
   useDisconnect,
 } from "thirdweb/react";
 import { defineChain } from "thirdweb/chains";
+import { useTheme } from "../contexts/themeContext";
 
 const socket = io.connect("http://localhost:3000");
 
@@ -42,6 +45,7 @@ function Home() {
   const chatEndRef = useRef(null);
   const reactionMenuRef = useRef(null);
   const [showDropdown, setShowDropdown] = useState(false);
+  const { darkMode, toggleTheme } = useTheme();
 
   // ThirdWeb hooks
   const account = useActiveAccount();
@@ -55,7 +59,7 @@ function Home() {
       setUserAddress(address);
       // Use shortened address as display name
       setUserName(
-        `${address.substring(0, 6)}...${address.substring(address.length - 4)}`
+        `${address.substring(0, 6)}...${address.substring(address.length - 4)}`,
       );
 
       // Connect socket with user address as ID
@@ -148,7 +152,7 @@ function Home() {
             };
           }
           return msg;
-        })
+        }),
       );
     });
 
@@ -305,7 +309,7 @@ function Home() {
           };
         }
         return msg;
-      })
+      }),
     );
 
     socket.emit("react_to_message", {
@@ -377,17 +381,17 @@ function Home() {
     if (!replyTo) return null;
 
     return (
-      <div className="mb-2 px-3 py-2 bg-blue-50 border-l-4 border-blue-400 rounded flex items-start justify-between">
+      <div className="mb-2 px-3 py-2 bg-sky-50/80 dark:bg-slate-800/60 border-l-4 border-sky-400/70 dark:border-sky-500/60 rounded flex items-start justify-between">
         <div className="flex-1">
-          <div className="text-xs text-blue-600 font-medium mb-1">
+          <div className="text-xs text-sky-700 dark:text-sky-300 font-medium mb-1">
             Replying to
           </div>
-          <div className="text-sm text-gray-700 truncate">
+          <div className="text-sm text-slate-700 dark:text-slate-200 truncate">
             "{replyTo.message}"
           </div>
         </div>
         <button
-          className="ml-2 text-gray-500 hover:text-gray-700"
+          className="ml-2 text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
           onClick={onCancel}
         >
           <X size={16} />
@@ -402,7 +406,7 @@ function Home() {
     return (
       <div
         ref={reactionMenuRef}
-        className="absolute bg-white shadow-lg rounded-lg p-2 flex space-x-2 z-10"
+        className="absolute bg-white/90 dark:bg-slate-900/90 border border-slate-200/70 dark:border-slate-700/60 shadow-xl rounded-xl p-2 flex space-x-2 z-10 backdrop-blur"
         style={{
           bottom: "100%",
           left: position === "right" ? "auto" : "0",
@@ -410,25 +414,25 @@ function Home() {
         }}
       >
         <button
-          className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+          className="p-1 rounded-full hover:bg-slate-100/70 dark:hover:bg-slate-800/70 transition-colors"
           onClick={() => handleReaction(messageId, "like")}
           title="Like"
         >
-          <ThumbsUp size={16} className="text-blue-500" />
+          <ThumbsUp size={16} className="text-sky-500" />
         </button>
         <button
-          className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+          className="p-1 rounded-full hover:bg-slate-100/70 dark:hover:bg-slate-800/70 transition-colors"
           onClick={() => handleReaction(messageId, "upvote")}
           title="Upvote"
         >
-          <ChevronUp size={16} className="text-green-500" />
+          <ChevronUp size={16} className="text-emerald-500" />
         </button>
         <button
-          className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+          className="p-1 rounded-full hover:bg-slate-100/70 dark:hover:bg-slate-800/70 transition-colors"
           onClick={() => handleReaction(messageId, "downvote")}
           title="Downvote"
         >
-          <ChevronDown size={16} className="text-red-500" />
+          <ChevronDown size={16} className="text-rose-500" />
         </button>
       </div>
     );
@@ -442,8 +446,8 @@ function Home() {
     if (isSystemMessage) {
       return (
         <div className="flex justify-center mb-4">
-          <div className="max-w-xs lg:max-w-md px-4 py-2 bg-gray-100 rounded-lg">
-            <p className="text-xs text-gray-500 text-center italic">
+          <div className="max-w-[85%] sm:max-w-md px-4 py-2 bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-800/70 rounded-lg backdrop-blur">
+            <p className="text-xs text-slate-500 dark:text-slate-400 text-center italic">
               {msg.message}
             </p>
           </div>
@@ -457,15 +461,15 @@ function Home() {
         id={`message-${idx}`}
       >
         <div
-          className={`max-w-xs lg:max-w-md ${
+          className={`max-w-[85%] sm:max-w-md ${
             isSelf ? "ml-auto" : "mr-auto"
           } relative`}
         >
           {msg.replyToMessage && (
-            <div className="mb-1 px-3 py-2 bg-gray-100 border-l-2 border-gray-300 rounded text-xs text-gray-600">
+            <div className="mb-1 px-3 py-2 bg-slate-100/70 dark:bg-slate-800/70 border-l-2 border-slate-300/70 dark:border-slate-700/70 rounded text-xs text-slate-600 dark:text-slate-300">
               <div className="font-medium">
                 Replying to{" "}
-                <span className="truncate w-[100px] bg-yellow-200/80 p-1 rounded-b-3xl">
+                <span className="truncate w-[100px] bg-amber-200/80 dark:bg-amber-500/20 text-slate-900 dark:text-amber-200 p-1 rounded-b-3xl">
                   {msg.replyTo
                     ? `${msg.replyTo.slice(0, 6)}...${msg.replyTo.slice(-4)}`
                     : ""}
@@ -476,19 +480,21 @@ function Home() {
           )}
 
           {!isSelf && !isAgent && (
-            <div className="text-xs text-gray-500 mb-1 ml-1">{msg.author}</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mb-1 ml-1">
+              {msg.author}
+            </div>
           )}
 
           <div className="flex items-end gap-2">
             {!isSelf && !isAgent && (
-              <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-gray-200 text-gray-700 font-medium text-sm">
+              <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-medium text-sm">
                 {/* {msg.author && typeof msg.author === "string"
                   ? msg.author.charAt(0).toUpperCase()
                   : "U"} */}
                 <img
                   src={`https://picsum.photos/seed/${msg.id || "default"}/300`}
                   alt="Profile"
-                  className="w-full h-full object-cover rounded-full border-2 border-white/50"
+                  className="w-full h-full object-cover rounded-full border-2 border-white/60 dark:border-slate-900/50"
                 />
               </div>
             )}
@@ -496,31 +502,31 @@ function Home() {
             <div
               className={`px-4 py-2 rounded-2xl relative group ${
                 isSelf
-                  ? "bg-blue-600 text-white rounded-br-md"
+                  ? "bg-sky-600 dark:bg-sky-500 text-white rounded-br-md shadow-sm"
                   : isAgent
-                  ? "bg-gray-100 text-gray-800 border border-gray-200 rounded-bl-md"
-                  : "bg-white text-gray-800 border border-gray-200 rounded-bl-md"
+                    ? "bg-slate-100/80 dark:bg-slate-800/70 text-slate-800 dark:text-slate-100 border border-slate-200/80 dark:border-slate-700/70 rounded-bl-md shadow-sm"
+                    : "bg-white/90 dark:bg-slate-900/70 text-slate-800 dark:text-slate-100 border border-slate-200/80 dark:border-slate-700/70 rounded-bl-md shadow-sm"
               }`}
             >
               <p className="text-sm">{msg.message}</p>
 
               {/* Reaction counts */}
-              <div className="flex items-center mt-1 space-x-2">
+              <div className="flex items-center mt-1 space-x-2 text-xs text-slate-500 dark:text-slate-300">
                 {msg.likes && msg.likes.length > 0 && (
-                  <div className="flex items-center text-xs">
-                    <ThumbsUp size={12} className="text-blue-500 mr-1" />
+                  <div className="flex items-center">
+                    <ThumbsUp size={12} className="text-sky-500 mr-1" />
                     <span>{msg.likes.length}</span>
                   </div>
                 )}
                 {msg.upvotes > 0 && (
-                  <div className="flex items-center text-xs">
-                    <ChevronUp size={12} className="text-green-500 mr-1" />
+                  <div className="flex items-center">
+                    <ChevronUp size={12} className="text-emerald-500 mr-1" />
                     <span>{msg.upvotes}</span>
                   </div>
                 )}
                 {msg.downvotes > 0 && (
-                  <div className="flex items-center text-xs">
-                    <ChevronDown size={12} className="text-red-500 mr-1" />
+                  <div className="flex items-center">
+                    <ChevronDown size={12} className="text-rose-500 mr-1" />
                     <span>{msg.downvotes}</span>
                   </div>
                 )}
@@ -530,7 +536,7 @@ function Home() {
               {!isAgent && userAddress && (
                 <div className="absolute -right-10 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
                   <button
-                    className="p-1 bg-gray-200 rounded-full hover:bg-gray-300"
+                    className="p-1 bg-slate-200/80 dark:bg-slate-800/70 rounded-full hover:bg-slate-300/70 dark:hover:bg-slate-700/70"
                     onClick={() =>
                       setReplyingTo({ id: msg.id, message: msg.message })
                     }
@@ -539,13 +545,13 @@ function Home() {
                     <CornerUpLeft size={14} />
                   </button>
                   <button
-                    className="p-1 bg-gray-200 rounded-full hover:bg-gray-300"
+                    className="p-1 bg-slate-200/80 dark:bg-slate-800/70 rounded-full hover:bg-slate-300/70 dark:hover:bg-slate-700/70"
                     onClick={(e) => {
                       e.stopPropagation();
                       setActiveReactionMenu(
                         activeReactionMenu === msg.messageId
                           ? null
-                          : msg.messageId
+                          : msg.messageId,
                       );
                     }}
                     title="React to this message"
@@ -557,7 +563,7 @@ function Home() {
             </div>
 
             {isSelf && (
-              <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-blue-100 text-blue-700 font-medium text-sm">
+              <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-sky-100 dark:bg-slate-800 text-sky-700 dark:text-slate-200 font-medium text-sm">
                 {/* {userName && typeof userName === "string"
                   ? userName.charAt(0).toUpperCase()
                   : "Y"} */}
@@ -566,7 +572,7 @@ function Home() {
                     userAddress || "default"
                   }/300`}
                   alt="Profile"
-                  className="w-full h-full object-cover rounded-full border-2 border-white/50"
+                  className="w-full h-full object-cover rounded-full border-2 border-white/60 dark:border-slate-900/50"
                 />
               </div>
             )}
@@ -574,12 +580,14 @@ function Home() {
 
           {isAgent && (
             <div className="flex items-center mt-1 ml-1">
-              <Bot size={12} className="text-gray-400 mr-1" />
-              <span className="text-xs text-gray-500">AI Agent</span>
+              <Bot size={12} className="text-slate-400 mr-1" />
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                AI Agent
+              </span>
             </div>
           )}
 
-          <div className="text-xs text-gray-400 mt-1 ml-1 text-right">
+          <div className="text-xs text-slate-400 dark:text-slate-500 mt-1 ml-1 text-right">
             {msg.timestamp}
           </div>
 
@@ -600,14 +608,14 @@ function Home() {
 
     return (
       <div className="flex justify-start mb-4">
-        <div className="max-w-xs lg:max-w-md bg-gray-100 border border-gray-200 rounded-2xl rounded-bl-md px-4 py-3">
+        <div className="max-w-[85%] sm:max-w-md bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-700/70 rounded-2xl rounded-bl-md px-4 py-3 backdrop-blur">
           <div className="flex items-center">
             <div className="animate-pulse flex space-x-2">
-              <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-              <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-              <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+              <div className="w-2 h-2 bg-slate-400 dark:bg-slate-500 rounded-full"></div>
+              <div className="w-2 h-2 bg-slate-400 dark:bg-slate-500 rounded-full"></div>
+              <div className="w-2 h-2 bg-slate-400 dark:bg-slate-500 rounded-full"></div>
             </div>
-            <span className="text-xs text-gray-500 ml-2">
+            <span className="text-xs text-slate-500 dark:text-slate-400 ml-2">
               {typingUsers.size === 1
                 ? "Someone is typing..."
                 : `${typingUsers.size} people are typing...`}
@@ -631,61 +639,68 @@ function Home() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex min-h-[100svh] md:min-h-screen bg-gradient-to-br from-slate-50 via-slate-50 to-sky-50 text-slate-900 dark:from-slate-950 dark:via-slate-950 dark:to-slate-900 dark:text-slate-100 transition-colors duration-300">
       {/* Sidebar */}
-      <div className="w-1/4 bg-white border-r border-gray-200 lg:flex flex-col hidden md:block">
-        <div className="p-4 border-b border-gray-200">
+      <div className="w-full md:w-[320px] lg:w-1/4 bg-white/80 dark:bg-slate-900/70 border-r border-slate-200/70 dark:border-slate-800/70 backdrop-blur lg:flex flex-col hidden md:flex">
+        <div className="p-4 border-b border-slate-200/70 dark:border-slate-800/70">
           <div className="flex items-center justify-between">
-            <h1 className="text-xl font-semibold text-gray-800">Chat</h1>
-            <button className="p-2 rounded-full hover:bg-gray-100">
-              <MoreVertical size={18} className="text-gray-500" />
+            <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+              Chat
+            </h1>
+            <button className="p-2 rounded-full hover:bg-slate-100/70 dark:hover:bg-slate-800/70">
+              <MoreVertical
+                size={18}
+                className="text-slate-500 dark:text-slate-300"
+              />
             </button>
           </div>
 
           <div className="relative mt-4">
             <Search
               size={18}
-              className="absolute left-3 top-2.5 text-gray-400"
+              className="absolute left-3 top-2.5 text-slate-400"
             />
             <input
               type="text"
               placeholder="Search conversations..."
-              className="w-full pl-10 pr-4 py-2 bg-gray-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+              className="w-full pl-10 pr-4 py-2 bg-slate-100/70 dark:bg-slate-800/60 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white/90 dark:focus:bg-slate-800"
             />
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2">
           {/* Chat list would go here */}
-          <div className="text-center text-gray-500 text-sm mt-4">
+          <div className="text-center text-slate-500 dark:text-slate-400 text-sm mt-4">
             Your conversations will appear here
           </div>
         </div>
 
-        <div className="p-4 border-t border-gray-200 flex items-center justify-between">
+        <div className="p-4 border-t border-slate-200/70 dark:border-slate-800/70 flex items-center justify-between">
           {userAddress ? (
             <div className="flex items-center justify-between w-full">
               <div className="flex items-center">
-                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-medium">
+                <div className="w-10 h-10 rounded-full bg-sky-100 dark:bg-slate-800 flex items-center justify-center text-sky-700 dark:text-slate-200 font-medium">
                   {/* {userName.charAt(0).toUpperCase()} */}
                   <img
                     src={`https://picsum.photos/seed/${
                       userAddress || "default"
                     }/300`}
                     alt="Profile"
-                    className="w-full h-full object-cover rounded-full border-2 border-white/50"
+                    className="w-full h-full object-cover rounded-full border-2 border-white/60 dark:border-slate-900/50"
                   />
                 </div>
                 <div className="ml-3">
-                  <p className="text-sm font-medium text-gray-800">
+                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
                     {userName}
                   </p>
-                  <p className="text-xs text-gray-500">Connected</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Connected
+                  </p>
                 </div>
               </div>
               <button
                 onClick={handleDisconnect}
-                className="p-2 text-gray-500 hover:cursor-pointer hover:text-red-500 hover:bg-red-50 rounded-full"
+                className="p-2 text-slate-500 dark:text-slate-300 hover:cursor-pointer hover:text-rose-500 hover:bg-rose-500/10 rounded-full"
                 title="Disconnect"
               >
                 <LogOut size={16} />
@@ -704,37 +719,48 @@ function Home() {
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
         {/* Chat Header */}
-        <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+        <div className="bg-white/80 dark:bg-slate-900/70 border-b border-slate-200/70 dark:border-slate-800/70 backdrop-blur p-4 sm:p-5 flex items-center justify-between">
           <div className="flex items-center">
             <div className="mr-3">
               <div className="w-2 h-2 bg-green-500 rounded-full"></div>
             </div>
             <div>
-              <h2 className="font-medium text-gray-800">General Chat</h2>
-              <p className="text-xs text-gray-500">{onlineUsers} online</p>
+              <h2 className="font-medium text-slate-900 dark:text-slate-100">
+                General Chat
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {onlineUsers} online
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center">
-            <button className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-lg hover:bg-slate-100/70 dark:hover:bg-slate-800/70 text-slate-500 dark:text-slate-300"
+              aria-label="Toggle dark mode"
+            >
+              {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+            <button className="p-2 rounded-lg hover:bg-slate-100/70 dark:hover:bg-slate-800/70 text-slate-500 dark:text-slate-300">
               <Search size={18} />
             </button>
             <div className="flex items-center relative">
               <button
-                className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 ml-1"
+                className="p-2 rounded-lg hover:bg-slate-100/70 dark:hover:bg-slate-800/70 text-slate-500 dark:text-slate-300 ml-1"
                 onClick={() => setShowDropdown((prev) => !prev)}
               >
                 <MoreVertical size={18} />
               </button>
               {showDropdown && (
-                <div className="absolute right-0 top-10 bg-white shadow-lg rounded-lg py-2 z-20 min-w-[120px]">
+                <div className="absolute right-0 top-10 bg-white/95 dark:bg-slate-900/95 border border-slate-200/70 dark:border-slate-700/70 shadow-xl rounded-lg py-2 z-20 min-w-[140px]">
                   {userAddress && (
                     <button
                       onClick={() => {
                         handleDisconnect();
                         setShowDropdown(false);
                       }}
-                      className="w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100"
+                      className="w-full text-left px-4 py-2 text-slate-700 dark:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-slate-800/70"
                     >
                       Disconnect
                     </button>
@@ -747,16 +773,16 @@ function Home() {
         </div>
 
         {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/40 dark:bg-slate-900/20">
           {!userAddress ? (
             <div className="h-full flex flex-col items-center justify-center text-center">
-              <div className="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center mb-4">
-                <User size={32} className="text-gray-400" />
+              <div className="w-16 h-16 rounded-full bg-white/80 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 flex items-center justify-center mb-4">
+                <User size={32} className="text-slate-400" />
               </div>
-              <h3 className="text-lg font-medium text-gray-700 mb-2">
+              <h3 className="text-lg font-medium text-slate-700 dark:text-slate-200 mb-2">
                 Connect your wallet to chat
               </h3>
-              <p className="text-gray-500 max-w-md mb-4">
+              <p className="text-slate-500 dark:text-slate-400 max-w-md mb-4">
                 Please connect your wallet to start chatting with others and use
                 the AI assistant.
               </p>
@@ -768,15 +794,15 @@ function Home() {
             </div>
           ) : chat.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center">
-              <div className="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center mb-4">
-                <Bot size={32} className="text-gray-400" />
+              <div className="w-16 h-16 rounded-full bg-white/80 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 flex items-center justify-center mb-4">
+                <Bot size={32} className="text-slate-400" />
               </div>
-              <h3 className="text-lg font-medium text-gray-700 mb-2">
+              <h3 className="text-lg font-medium text-slate-700 dark:text-slate-200 mb-2">
                 Welcome to the chat!
               </h3>
-              <p className="text-gray-500 max-w-md">
+              <p className="text-slate-500 dark:text-slate-400 max-w-md">
                 Start a conversation by typing a message below. Type{" "}
-                <span className="bg-gray-200 px-1.5 py-0.5 rounded text-sm">
+                <span className="bg-slate-200/70 dark:bg-slate-800/70 px-1.5 py-0.5 rounded text-sm">
                   @agent
                 </span>{" "}
                 followed by your question to get help from the AI assistant.
@@ -790,14 +816,14 @@ function Home() {
               <TypingIndicator />
               {isAgentThinking && (
                 <div className="flex justify-start mb-4">
-                  <div className="max-w-xs lg:max-w-md bg-gray-100 border border-gray-200 rounded-2xl rounded-bl-md px-4 py-3">
+                  <div className="max-w-[85%] sm:max-w-md bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-700/70 rounded-2xl rounded-bl-md px-4 py-3 backdrop-blur">
                     <div className="flex items-center">
                       <div className="animate-pulse flex space-x-2">
-                        <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                        <div className="w-2 h-2 bg-slate-400 dark:bg-slate-500 rounded-full"></div>
+                        <div className="w-2 h-2 bg-slate-400 dark:bg-slate-500 rounded-full"></div>
+                        <div className="w-2 h-2 bg-slate-400 dark:bg-slate-500 rounded-full"></div>
                       </div>
-                      <span className="text-xs text-gray-500 ml-2">
+                      <span className="text-xs text-slate-500 dark:text-slate-400 ml-2">
                         AI Agent is thinking...
                       </span>
                     </div>
@@ -811,14 +837,14 @@ function Home() {
 
         {/* Input Area */}
         {userAddress && (
-          <div className="bg-white border-t border-gray-200 p-4">
+          <div className="bg-white/80 dark:bg-slate-900/70 border-t border-slate-200/70 dark:border-slate-800/70 backdrop-blur p-4 sm:p-5">
             <ReplyPreview
               replyTo={replyingTo}
               onCancel={() => setReplyingTo(null)}
             />
 
             <div className="flex items-center">
-              <button className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 mr-1">
+              <button className="p-2 rounded-lg hover:bg-slate-100/70 dark:hover:bg-slate-800/70 text-slate-500 dark:text-slate-300 mr-1">
                 <Paperclip size={20} />
               </button>
 
@@ -829,11 +855,11 @@ function Home() {
                   onChange={(e) => setMessage(e.target.value)}
                   onKeyPress={handleKeyPress}
                   placeholder="Type your message..."
-                  className="w-full px-4 py-3 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white pr-12"
+                  className="w-full px-4 py-3 bg-slate-100/80 dark:bg-slate-800/60 rounded-lg text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white/90 dark:focus:bg-slate-800 pr-12"
                   disabled={!userAddress}
                 />
 
-                <button className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600">
+                <button className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
                   <Smile size={20} />
                 </button>
               </div>
@@ -841,16 +867,16 @@ function Home() {
               <button
                 onClick={sendMessage}
                 disabled={!message.trim() || !userAddress}
-                className="ml-3 p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="ml-3 p-3 bg-sky-600 dark:bg-sky-500 text-white rounded-lg hover:bg-sky-700 dark:hover:bg-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Send size={20} />
               </button>
             </div>
 
-            <div className="mt-2 text-xs text-gray-500 flex justify-between">
+            <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 flex justify-between">
               <div>
                 Type{" "}
-                <span className="bg-gray-100 px-1.5 py-0.5 rounded">
+                <span className="bg-slate-100/70 dark:bg-slate-800/70 px-1.5 py-0.5 rounded">
                   @agent
                 </span>{" "}
                 to ask the AI for help
