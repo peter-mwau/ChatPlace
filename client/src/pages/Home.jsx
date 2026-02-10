@@ -17,6 +17,12 @@ import {
   Sun,
   Moon,
   Copy,
+  Hash,
+  MessageCircle,
+  Users,
+  ChevronRight,
+  Sparkles,
+  Shield,
 } from "lucide-react";
 import { client } from "../client";
 import { inAppWallet } from "thirdweb/wallets";
@@ -77,10 +83,13 @@ function Home() {
   const [copiedAddress, setCopiedAddress] = useState("");
   const [dmTarget, setDmTarget] = useState("");
   const [dmError, setDmError] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const typingTimeoutRef = useRef(null);
   const chatEndRef = useRef(null);
   const reactionMenuRef = useRef(null);
-  const [showDropdown, setShowDropdown] = useState(false);
+  const headerMenuRef = useRef(null);
   const { darkMode, toggleTheme } = useTheme();
   const activeMessages = useMemo(
     () => messagesByConversation[activeConversationId] || [],
@@ -96,17 +105,28 @@ function Home() {
   const { disconnect } = useDisconnect();
   const wallet = useActiveWallet();
 
+  // Filter conversations based on search
+  const filteredConversations = useMemo(() => {
+    if (!searchQuery.trim()) return conversations;
+    const query = searchQuery.toLowerCase();
+    return conversations.filter((conv) => {
+      const meta = getConversationListMeta(conv);
+      return (
+        meta.title.toLowerCase().includes(query) ||
+        meta.subtitle.toLowerCase().includes(query)
+      );
+    });
+  }, [conversations, searchQuery]);
+
   // Update user info when account changes
   useEffect(() => {
     if (account) {
       const address = account.address;
       setUserAddress(address);
-      // Use shortened address as display name
       setUserName(
         `${address.substring(0, 6)}...${address.substring(address.length - 4)}`,
       );
 
-      // Connect socket with user address as ID
       socket.auth = { userId: address };
       if (!socket.connected) {
         socket.connect();
@@ -154,6 +174,21 @@ function Home() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  useEffect(() => {
+    function handleHeaderMenuClickOutside(event) {
+      if (
+        headerMenuRef.current &&
+        !headerMenuRef.current.contains(event.target)
+      ) {
+        setShowHeaderMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleHeaderMenuClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleHeaderMenuClickOutside);
     };
   }, []);
 
@@ -259,11 +294,6 @@ function Home() {
       });
     });
 
-    // socket.on("user_joined", (data) => {
-    //   // You could show a notification when a user joins
-    //   console.log(`${data.userName} joined the chat`);
-    // });
-
     socket.on("user_joined", (data) => {
       const newMessage = {
         message: `${data.userName} joined the chat`,
@@ -316,7 +346,6 @@ function Home() {
           [GENERAL_CONVERSATION_ID]: [...existing, newMessage],
         };
       });
-      console.log(`${data.userName} left the chat`);
     });
 
     socket.on("dm_ready", (data) => {
@@ -347,6 +376,9 @@ function Home() {
       setActiveConversationId(roomId);
       setDmTarget("");
       setDmError("");
+      if (typeof window !== "undefined" && window.innerWidth < 768) {
+        setIsSidebarOpen(false);
+      }
     });
 
     socket.on("dm_error", (data) => {
@@ -390,12 +422,10 @@ function Home() {
       });
     }
 
-    // Clear previous timeout
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
 
-    // Set a timeout to stop showing typing after 2 seconds of inactivity
     typingTimeoutRef.current = setTimeout(() => {
       if (isTyping && userAddress) {
         setIsTyping(false);
@@ -550,8 +580,8 @@ function Home() {
 
     setMessage("");
     setReplyingTo(null);
-
     setIsTyping(false);
+
     socket.emit("typing", {
       isTyping: false,
       userId: userAddress,
@@ -570,20 +600,21 @@ function Home() {
     if (!replyTo) return null;
 
     return (
-      <div className="mb-2 px-3 py-2 bg-sky-50/80 dark:bg-slate-800/60 border-l-4 border-sky-400/70 dark:border-sky-500/60 rounded flex items-start justify-between">
+      <div className="mb-3 px-4 py-3 bg-gradient-to-r from-sky-50 to-blue-50 dark:from-slate-800/50 dark:to-slate-900/50 border-l-3 border-sky-400 rounded-xl flex items-start justify-between backdrop-blur-sm">
         <div className="flex-1">
-          <div className="text-xs text-sky-700 dark:text-sky-300 font-medium mb-1">
-            Replying to
+          <div className="flex items-center gap-2 text-xs font-medium text-sky-700 dark:text-sky-300 mb-1">
+            <CornerUpLeft size={12} />
+            Replying to {formatAddress(replyTo.id)}
           </div>
-          <div className="text-sm text-slate-700 dark:text-slate-200 truncate">
+          <div className="text-sm text-slate-700 dark:text-slate-200 line-clamp-2">
             "{replyTo.message}"
           </div>
         </div>
         <button
-          className="ml-2 text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
+          className="ml-3 p-1 hover:bg-slate-200/50 dark:hover:bg-slate-700/50 rounded-lg transition-colors"
           onClick={onCancel}
         >
-          <X size={16} />
+          <X size={16} className="text-slate-500 dark:text-slate-400" />
         </button>
       </div>
     );
@@ -595,7 +626,7 @@ function Home() {
     return (
       <div
         ref={reactionMenuRef}
-        className="absolute bg-white/90 dark:bg-slate-900/90 border border-slate-200/70 dark:border-slate-700/60 shadow-xl rounded-xl p-2 flex space-x-2 z-10 backdrop-blur"
+        className="absolute bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl rounded-2xl p-2 flex space-x-2 z-20 backdrop-blur-xl"
         style={{
           bottom: "100%",
           left: position === "right" ? "auto" : "0",
@@ -603,25 +634,25 @@ function Home() {
         }}
       >
         <button
-          className="p-1 rounded-full hover:bg-slate-100/70 dark:hover:bg-slate-800/70 transition-colors"
+          className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-all duration-200 hover:scale-110"
           onClick={() => handleReaction(messageId, "like")}
           title="Like"
         >
-          <ThumbsUp size={16} className="text-sky-500" />
+          <ThumbsUp size={18} className="text-sky-500" />
         </button>
         <button
-          className="p-1 rounded-full hover:bg-slate-100/70 dark:hover:bg-slate-800/70 transition-colors"
+          className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-all duration-200 hover:scale-110"
           onClick={() => handleReaction(messageId, "upvote")}
           title="Upvote"
         >
-          <ChevronUp size={16} className="text-emerald-500" />
+          <ChevronUp size={18} className="text-emerald-500" />
         </button>
         <button
-          className="p-1 rounded-full hover:bg-slate-100/70 dark:hover:bg-slate-800/70 transition-colors"
+          className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-all duration-200 hover:scale-110"
           onClick={() => handleReaction(messageId, "downvote")}
           title="Downvote"
         >
-          <ChevronDown size={16} className="text-rose-500" />
+          <ChevronDown size={18} className="text-rose-500" />
         </button>
       </div>
     );
@@ -634,9 +665,9 @@ function Home() {
 
     if (isSystemMessage) {
       return (
-        <div className="flex justify-center mb-4">
-          <div className="max-w-[85%] sm:max-w-md px-4 py-2 bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-800/70 rounded-lg backdrop-blur">
-            <p className="text-xs text-slate-500 dark:text-slate-400 text-center italic">
+        <div className="flex justify-center mb-6">
+          <div className="max-w-md px-5 py-3 bg-white/90 dark:bg-slate-900/90 border border-slate-200/50 dark:border-slate-800/50 rounded-2xl backdrop-blur-xl shadow-sm">
+            <p className="text-xs text-slate-500 dark:text-slate-400 text-center">
               {msg.message}
             </p>
           </div>
@@ -646,150 +677,174 @@ function Home() {
 
     return (
       <div
-        className={`flex mb-4 ${isSelf ? "justify-end" : "justify-start"}`}
+        className={`flex mb-6 ${isSelf ? "justify-end" : "justify-start"}`}
         id={`message-${idx}`}
       >
         <div
-          className={`max-w-[85%] sm:max-w-md ${
+          className={`max-w-[90%] lg:max-w-2xl ${
             isSelf ? "ml-auto" : "mr-auto"
           } relative`}
         >
           {msg.replyToMessage && (
-            <div className="mb-1 px-3 py-2 bg-slate-100/70 dark:bg-slate-800/70 border-l-2 border-slate-300/70 dark:border-slate-700/70 rounded text-xs text-slate-600 dark:text-slate-300">
-              <div className="font-medium">
+            <div className="mb-2 px-4 py-2 bg-slate-100/80 dark:bg-slate-800/80 border-l-3 border-slate-300 dark:border-slate-700 rounded-xl">
+              <div className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
                 Replying to{" "}
-                <span className="truncate w-[100px] bg-amber-200/80 dark:bg-amber-500/20 text-slate-900 dark:text-amber-200 p-1 rounded-b-3xl">
-                  {msg.replyTo
-                    ? `${msg.replyTo.slice(0, 6)}...${msg.replyTo.slice(-4)}`
-                    : ""}
+                <span className="text-slate-800 dark:text-slate-100">
+                  {formatAddress(msg.replyTo)}
                 </span>
               </div>
-              <div className="truncate">"{msg.replyToMessage}"</div>
+              <div className="text-sm text-slate-700 dark:text-slate-200 line-clamp-2">
+                "{msg.replyToMessage}"
+              </div>
             </div>
           )}
 
-          {!isSelf && !isAgent && (
-            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mb-1 ml-1">
-              <span>{msg.author}</span>
-              <button
-                onClick={() => handleCopyAddress(msg.id)}
-                className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                title="Copy address"
-                type="button"
-              >
-                <Copy size={12} />
-                {copiedAddress === msg.id ? "Copied" : "Copy"}
-              </button>
-            </div>
-          )}
-
-          <div className="flex items-end gap-2">
+          <div className="flex items-end gap-3">
             {!isSelf && !isAgent && (
-              <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-medium text-sm">
-                {/* {msg.author && typeof msg.author === "string"
-                  ? msg.author.charAt(0).toUpperCase()
-                  : "U"} */}
-                <img
-                  src={`https://picsum.photos/seed/${msg.id || "default"}/300`}
-                  alt="Profile"
-                  className="w-full h-full object-cover rounded-full border-2 border-white/60 dark:border-slate-900/50"
-                />
+              <div className="flex-shrink-0">
+                <div className="w-10 h-10 rounded-2xl overflow-hidden border-2 border-white/80 dark:border-slate-900/80 shadow-sm">
+                  <img
+                    src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.id}`}
+                    alt="Avatar"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
               </div>
             )}
 
-            <div
-              className={`px-4 py-2 rounded-2xl relative group ${
-                isSelf
-                  ? "bg-sky-600 dark:bg-sky-500 text-white rounded-br-md shadow-sm"
-                  : isAgent
-                    ? "bg-slate-100/80 dark:bg-slate-800/70 text-slate-800 dark:text-slate-100 border border-slate-200/80 dark:border-slate-700/70 rounded-bl-md shadow-sm"
-                    : "bg-white/90 dark:bg-slate-900/70 text-slate-800 dark:text-slate-100 border border-slate-200/80 dark:border-slate-700/70 rounded-bl-md shadow-sm"
-              }`}
-            >
-              <p className="text-sm">{msg.message}</p>
+            <div className="flex-1">
+              {!isSelf && !isAgent && (
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                    {msg.author}
+                  </span>
+                  <button
+                    onClick={() => handleCopyAddress(msg.id)}
+                    className="text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
+                    title="Copy address"
+                  >
+                    <Copy size={12} />
+                  </button>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    •
+                  </span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    {msg.timestamp}
+                  </span>
+                </div>
+              )}
 
-              {/* Reaction counts */}
-              <div className="flex items-center mt-1 space-x-2 text-xs text-slate-500 dark:text-slate-300">
-                {msg.likes && msg.likes.length > 0 && (
-                  <div className="flex items-center">
-                    <ThumbsUp size={12} className="text-sky-500 mr-1" />
-                    <span>{msg.likes.length}</span>
+              <div
+                className={`relative group rounded-2xl px-5 py-3 ${
+                  isSelf
+                    ? "bg-gradient-to-r from-sky-500 to-blue-500 text-white"
+                    : isAgent
+                      ? "bg-gradient-to-r from-slate-100 to-slate-50 dark:from-slate-800 dark:to-slate-900 border border-slate-200/50 dark:border-slate-700/50"
+                      : "bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-700/50"
+                } shadow-sm`}
+              >
+                <p
+                  className={`text-sm leading-relaxed ${
+                    isSelf ? "text-white" : "text-slate-900 dark:text-slate-100"
+                  }`}
+                >
+                  {msg.message}
+                </p>
+
+                <div className="flex items-center justify-between mt-3">
+                  <div className="flex items-center gap-3">
+                    {msg.likes && msg.likes.length > 0 && (
+                      <div className="flex items-center gap-1 text-xs text-sky-600 dark:text-sky-400">
+                        <ThumbsUp size={14} />
+                        <span>{msg.likes.length}</span>
+                      </div>
+                    )}
+                    {msg.upvotes > 0 && (
+                      <div className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+                        <ChevronUp size={14} />
+                        <span>{msg.upvotes}</span>
+                      </div>
+                    )}
+                    {msg.downvotes > 0 && (
+                      <div className="flex items-center gap-1 text-xs text-rose-600 dark:text-rose-400">
+                        <ChevronDown size={14} />
+                        <span>{msg.downvotes}</span>
+                      </div>
+                    )}
                   </div>
-                )}
-                {msg.upvotes > 0 && (
-                  <div className="flex items-center">
-                    <ChevronUp size={12} className="text-emerald-500 mr-1" />
-                    <span>{msg.upvotes}</span>
-                  </div>
-                )}
-                {msg.downvotes > 0 && (
-                  <div className="flex items-center">
-                    <ChevronDown size={12} className="text-rose-500 mr-1" />
-                    <span>{msg.downvotes}</span>
-                  </div>
-                )}
+
+                  {!isAgent && userAddress && (
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        className="p-1.5 hover:bg-black/10 dark:hover:bg-white/10 rounded-lg transition-colors text-slate-600 dark:text-slate-200"
+                        onClick={() =>
+                          setReplyingTo({ id: msg.id, message: msg.message })
+                        }
+                        title="Reply"
+                      >
+                        <CornerUpLeft size={16} />
+                      </button>
+                      <button
+                        className="p-1.5 hover:bg-black/10 dark:hover:bg-white/10 rounded-lg transition-colors text-slate-600 dark:text-slate-200"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveReactionMenu(
+                            activeReactionMenu === msg.messageId
+                              ? null
+                              : msg.messageId,
+                          );
+                        }}
+                        title="React"
+                      >
+                        <ThumbsUp size={16} />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Reply button - only show on hover for non-agent messages */}
-              {!isAgent && userAddress && (
-                <div className="absolute -right-10 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
-                  <button
-                    className="p-1 bg-slate-200/80 dark:bg-slate-800/70 rounded-full hover:bg-slate-300/70 dark:hover:bg-slate-700/70"
-                    onClick={() =>
-                      setReplyingTo({ id: msg.id, message: msg.message })
-                    }
-                    title="Reply to this message"
-                  >
-                    <CornerUpLeft size={14} />
-                  </button>
-                  <button
-                    className="p-1 bg-slate-200/80 dark:bg-slate-800/70 rounded-full hover:bg-slate-300/70 dark:hover:bg-slate-700/70"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveReactionMenu(
-                        activeReactionMenu === msg.messageId
-                          ? null
-                          : msg.messageId,
-                      );
-                    }}
-                    title="React to this message"
-                  >
-                    <ThumbsUp size={14} />
-                  </button>
+              {isAgent && (
+                <div className="flex items-center gap-2 mt-2 ml-1">
+                  <div className="p-1 bg-gradient-to-r from-purple-100 to-pink-100 dark:from-purple-900/30 dark:to-pink-900/30 rounded-lg">
+                    <Bot
+                      size={14}
+                      className="text-purple-600 dark:text-purple-400"
+                    />
+                  </div>
+                  <span className="text-xs text-slate-600 dark:text-slate-400">
+                    AI Agent
+                  </span>
+                  <span className="text-xs text-slate-500 dark:text-slate-500">
+                    •
+                  </span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    {msg.timestamp}
+                  </span>
+                </div>
+              )}
+
+              {isSelf && (
+                <div className="flex items-center gap-2 mt-2 justify-end">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    {msg.timestamp}
+                  </span>
                 </div>
               )}
             </div>
 
             {isSelf && (
-              <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-sky-100 dark:bg-slate-800 text-sky-700 dark:text-slate-200 font-medium text-sm">
-                {/* {userName && typeof userName === "string"
-                  ? userName.charAt(0).toUpperCase()
-                  : "Y"} */}
-                <img
-                  src={`https://picsum.photos/seed/${
-                    userAddress || "default"
-                  }/300`}
-                  alt="Profile"
-                  className="w-full h-full object-cover rounded-full border-2 border-white/60 dark:border-slate-900/50"
-                />
+              <div className="flex-shrink-0">
+                <div className="w-10 h-10 rounded-2xl overflow-hidden border-2 border-white/80 dark:border-slate-900/80 shadow-sm bg-gradient-to-br from-sky-100 to-blue-100 dark:from-slate-800 dark:to-slate-900">
+                  <img
+                    src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${userAddress}`}
+                    alt="Your Avatar"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
               </div>
             )}
           </div>
 
-          {isAgent && (
-            <div className="flex items-center mt-1 ml-1">
-              <Bot size={12} className="text-slate-400 mr-1" />
-              <span className="text-xs text-slate-500 dark:text-slate-400">
-                AI Agent
-              </span>
-            </div>
-          )}
-
-          <div className="text-xs text-slate-400 dark:text-slate-500 mt-1 ml-1 text-right">
-            {msg.timestamp}
-          </div>
-
-          {/* Reaction menu */}
           {userAddress && (
             <ReactionMenu
               messageId={msg.messageId}
@@ -805,15 +860,21 @@ function Home() {
     if (activeTypingUsers.size === 0) return null;
 
     return (
-      <div className="flex justify-start mb-4">
-        <div className="max-w-[85%] sm:max-w-md bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-700/70 rounded-2xl rounded-bl-md px-4 py-3 backdrop-blur">
-          <div className="flex items-center">
-            <div className="animate-pulse flex space-x-2">
-              <div className="w-2 h-2 bg-slate-400 dark:bg-slate-500 rounded-full"></div>
-              <div className="w-2 h-2 bg-slate-400 dark:bg-slate-500 rounded-full"></div>
-              <div className="w-2 h-2 bg-slate-400 dark:bg-slate-500 rounded-full"></div>
+      <div className="flex justify-start mb-6">
+        <div className="max-w-[90%] lg:max-w-2xl bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-700/50 rounded-2xl px-5 py-4 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="flex space-x-1">
+              <div className="w-2 h-2 bg-slate-400 dark:bg-slate-500 rounded-full animate-bounce"></div>
+              <div
+                className="w-2 h-2 bg-slate-400 dark:bg-slate-500 rounded-full animate-bounce"
+                style={{ animationDelay: "0.1s" }}
+              ></div>
+              <div
+                className="w-2 h-2 bg-slate-400 dark:bg-slate-500 rounded-full animate-bounce"
+                style={{ animationDelay: "0.2s" }}
+              ></div>
             </div>
-            <span className="text-xs text-slate-500 dark:text-slate-400 ml-2">
+            <span className="text-sm text-slate-600 dark:text-slate-400">
               {activeTypingUsers.size === 1
                 ? "Someone is typing..."
                 : `${activeTypingUsers.size} people are typing...`}
@@ -828,7 +889,7 @@ function Home() {
     try {
       disconnect(wallet);
       socket.emit("user_left", { userId: userAddress, userName });
-      socket.disconnect(); // <-- Add this line
+      socket.disconnect();
       setUserAddress("");
       setUserName("");
     } catch (err) {
@@ -854,6 +915,15 @@ function Home() {
     }
 
     setDmError("");
+
+    if (!socket.connected) {
+      socket.connect();
+      socket.once("connect", () => {
+        socket.emit("start_dm", { targetUserId: target });
+      });
+      return;
+    }
+
     socket.emit("start_dm", { targetUserId: target });
   };
 
@@ -887,6 +957,8 @@ function Home() {
         title: "General Chat",
         subtitle: "Public room",
         avatarSeed: "general",
+        icon: <Hash size={16} />,
+        color: "text-blue-500",
       };
     }
 
@@ -899,6 +971,8 @@ function Home() {
       title: otherMember ? formatAddress(otherMember) : "Direct Message",
       subtitle: "Direct Message",
       avatarSeed: otherMember || conversation.id,
+      icon: <MessageCircle size={16} />,
+      color: "text-emerald-500",
     };
   };
 
@@ -908,283 +982,403 @@ function Home() {
   );
 
   return (
-    <div className="flex min-h-[100svh] md:min-h-screen bg-gradient-to-br from-slate-50 via-slate-50 to-sky-50 text-slate-900 dark:from-slate-950 dark:via-slate-950 dark:to-slate-900 dark:text-slate-100 transition-colors duration-300">
+    <div className="flex min-h-screen bg-gradient-to-br from-white via-slate-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-900 transition-colors duration-300">
+      {!isSidebarOpen && (
+        <button
+          className="fixed top-4 left-4 z-50 p-2.5 bg-white/90 dark:bg-slate-900/90 border border-slate-200/70 dark:border-slate-800/70 rounded-xl shadow-lg hover:bg-white dark:hover:bg-slate-900 transition-colors"
+          onClick={() => setIsSidebarOpen(true)}
+          aria-label="Open sidebar"
+        >
+          <Users size={20} className="text-slate-600 dark:text-slate-200" />
+        </button>
+      )}
+      {/* Mobile Sidebar Overlay */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <div className="w-full md:w-[320px] lg:w-1/4 bg-white/80 dark:bg-slate-900/70 border-r border-slate-200/70 dark:border-slate-800/70 backdrop-blur lg:flex flex-col hidden md:flex">
-        <div className="p-4 border-b border-slate-200/70 dark:border-slate-800/70">
-          <div className="flex items-center justify-between">
-            <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-              Chat
-            </h1>
-            <button className="p-2 rounded-full hover:bg-slate-100/70 dark:hover:bg-slate-800/70">
-              <MoreVertical
-                size={18}
-                className="text-slate-500 dark:text-slate-300"
-              />
-            </button>
-          </div>
-
-          <div className="relative mt-4">
-            <Search
-              size={18}
-              className="absolute left-3 top-2.5 text-slate-400"
-            />
-            <input
-              type="text"
-              placeholder="Search conversations..."
-              className="w-full pl-10 pr-4 py-2 bg-slate-100/70 dark:bg-slate-800/60 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white/90 dark:focus:bg-slate-800"
-            />
-          </div>
-
-          <div className="mt-4">
-            <div className="text-[11px] uppercase tracking-wider text-slate-400 dark:text-slate-500">
-              Start a DM
-            </div>
-            <div className="flex items-center gap-2 mt-2">
-              <input
-                type="text"
-                value={dmTarget}
-                onChange={(e) => setDmTarget(e.target.value)}
-                placeholder="Wallet address"
-                className="flex-1 px-3 py-2 bg-slate-100/70 dark:bg-slate-800/60 rounded-lg text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
-              />
+      <div
+        className={`fixed md:static inset-y-0 left-0 z-50 w-80 md:w-96 lg:w-96 transform transition-transform duration-300 ease-in-out ${
+          isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div className="h-full flex flex-col bg-white/95 dark:bg-slate-900/95 border-r border-slate-200/50 dark:border-slate-800/50 backdrop-blur-xl">
+          {/* Sidebar Header */}
+          <div className="p-6 border-b border-slate-200/50 dark:border-slate-800/50">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-gradient-to-br from-sky-500 to-blue-500 rounded-xl">
+                  <MessageCircle size={24} className="text-white" />
+                </div>
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 bg-clip-text text-transparent">
+                  Chatverse
+                </h1>
+              </div>
               <button
-                onClick={handleStartDm}
-                className="px-3 py-2 text-xs font-medium bg-sky-600 text-white rounded-lg hover:bg-sky-700 dark:hover:bg-sky-500"
+                className="p-2 hover:bg-slate-100/50 dark:hover:bg-slate-800/50 rounded-xl transition-colors"
+                onClick={() => setIsSidebarOpen(false)}
               >
-                DM
+                <ChevronRight
+                  size={20}
+                  className="text-slate-500 dark:text-slate-400"
+                />
               </button>
             </div>
-            {dmError && (
-              <div className="mt-2 text-xs text-rose-500">{dmError}</div>
-            )}
-          </div>
-        </div>
 
-        <div className="flex-1 overflow-y-auto p-2">
-          <div className="px-2 py-3">
-            <div className="text-[11px] uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">
-              Conversations
+            <div className="relative">
+              <Search
+                size={18}
+                className="absolute left-4 top-3.5 text-slate-400"
+              />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search conversations..."
+                className="w-full pl-12 pr-4 py-3 bg-slate-100/50 dark:bg-slate-800/50 border border-slate-200/50 dark:border-slate-700/50 rounded-xl text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+              />
             </div>
-            {conversations.map((conversation) => {
-              const meta = getConversationListMeta(conversation);
-              const isActive = activeConversationId === conversation.id;
 
-              return (
+            <div className="mt-6">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  Start Direct Message
+                </h2>
+                <Sparkles size={16} className="text-sky-500" />
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={dmTarget}
+                  onChange={(e) => setDmTarget(e.target.value)}
+                  placeholder="Enter wallet address"
+                  className="flex-1 px-4 py-3 bg-slate-100/50 dark:bg-slate-800/50 border border-slate-200/50 dark:border-slate-700/50 rounded-xl text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                />
                 <button
-                  key={conversation.id}
-                  onClick={() => setActiveConversationId(conversation.id)}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                    isActive
-                      ? "bg-sky-600 text-white"
-                      : "text-slate-700 dark:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-slate-800/70"
-                  }`}
+                  onClick={handleStartDm}
+                  className="px-4 py-3 bg-gradient-to-r from-sky-500 to-blue-500 text-white font-medium rounded-xl hover:from-sky-600 hover:to-blue-600 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900 transition-all duration-200"
                 >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-9 h-9 rounded-full overflow-hidden border-2 ${
+                  Start
+                </button>
+              </div>
+              {dmError && (
+                <div className="mt-2 text-sm text-rose-500 px-1">{dmError}</div>
+              )}
+            </div>
+          </div>
+
+          {/* Conversations List */}
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="mb-4">
+              <div className="flex items-center gap-2 px-2 mb-3">
+                <Users size={16} className="text-slate-400" />
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  Conversations ({filteredConversations.length})
+                </span>
+              </div>
+              <div className="space-y-2">
+                {filteredConversations.map((conversation) => {
+                  const meta = getConversationListMeta(conversation);
+                  const isActive = activeConversationId === conversation.id;
+
+                  return (
+                    <button
+                      key={conversation.id}
+                      onClick={() => {
+                        setActiveConversationId(conversation.id);
+                        if (
+                          typeof window !== "undefined" &&
+                          window.innerWidth < 768
+                        ) {
+                          setIsSidebarOpen(false);
+                        }
+                      }}
+                      className={`w-full text-left p-3 rounded-xl transition-all duration-200 ${
                         isActive
-                          ? "border-sky-200/60"
-                          : "border-white/60 dark:border-slate-900/50"
+                          ? "bg-gradient-to-r from-sky-500/10 to-blue-500/10 border border-sky-200/50 dark:border-sky-900/50"
+                          : "hover:bg-slate-100/50 dark:hover:bg-slate-800/50"
                       }`}
                     >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`p-2 rounded-lg ${
+                            isActive
+                              ? "bg-gradient-to-r from-sky-500 to-blue-500"
+                              : "bg-slate-100 dark:bg-slate-800"
+                          }`}
+                        >
+                          {meta.icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <div
+                              className={`font-medium truncate ${
+                                isActive
+                                  ? "text-sky-700 dark:text-sky-300"
+                                  : "text-slate-900 dark:text-slate-100"
+                              }`}
+                            >
+                              {meta.title}
+                            </div>
+                          </div>
+                          <div
+                            className={`text-xs truncate ${
+                              isActive
+                                ? "text-sky-600/80 dark:text-sky-400/80"
+                                : "text-slate-500 dark:text-slate-400"
+                            }`}
+                          >
+                            {meta.subtitle}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* User Profile Section */}
+          <div className="p-4 border-t border-slate-200/50 dark:border-slate-800/50">
+            {userAddress ? (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <div className="w-12 h-12 rounded-2xl overflow-hidden border-2 border-white dark:border-slate-900 shadow-sm">
                       <img
-                        src={`https://picsum.photos/seed/${meta.avatarSeed}/120`}
-                        alt="Conversation avatar"
+                        src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${userAddress}`}
+                        alt="Profile"
                         className="w-full h-full object-cover"
                       />
                     </div>
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">{meta.title}</div>
-                      <div
-                        className={`text-xs truncate ${
-                          isActive ? "text-white/80" : "text-slate-400"
-                        }`}
+                    <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 rounded-full border-2 border-white dark:border-slate-900"></div>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-slate-900 dark:text-slate-100">
+                        {userName}
+                      </p>
+                      <button
+                        onClick={() => handleCopyAddress(userAddress)}
+                        className="p-1 hover:bg-slate-200/50 dark:hover:bg-slate-700/50 rounded-lg transition-colors"
+                        title="Copy address"
                       >
-                        {meta.subtitle}
-                      </div>
+                        <Copy size={14} className="text-slate-400" />
+                      </button>
                     </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="p-4 border-t border-slate-200/70 dark:border-slate-800/70 flex items-center justify-between">
-          {userAddress ? (
-            <div className="flex items-center justify-between w-full">
-              <div className="flex items-center">
-                <div className="w-10 h-10 rounded-full bg-sky-100 dark:bg-slate-800 flex items-center justify-center text-sky-700 dark:text-slate-200 font-medium">
-                  {/* {userName.charAt(0).toUpperCase()} */}
-                  <img
-                    src={`https://picsum.photos/seed/${
-                      userAddress || "default"
-                    }/300`}
-                    alt="Profile"
-                    className="w-full h-full object-cover rounded-full border-2 border-white/60 dark:border-slate-900/50"
-                  />
-                </div>
-                <div className="ml-3">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                      {userName}
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Connected
                     </p>
-                    <button
-                      onClick={() => handleCopyAddress(userAddress)}
-                      className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                      title="Copy your address"
-                      type="button"
-                    >
-                      <Copy size={12} />
-                      {copiedAddress === userAddress ? "Copied" : "Copy"}
-                    </button>
                   </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Connected
-                  </p>
                 </div>
+                <button
+                  onClick={handleDisconnect}
+                  className="p-2 hover:bg-slate-200/50 dark:hover:bg-slate-700/50 rounded-xl transition-colors"
+                  title="Disconnect"
+                >
+                  <LogOut size={18} className="text-slate-400" />
+                </button>
               </div>
-              <button
-                onClick={handleDisconnect}
-                className="p-2 text-slate-500 dark:text-slate-300 hover:cursor-pointer hover:text-rose-500 hover:bg-rose-500/10 rounded-full"
-                title="Disconnect"
-              >
-                <LogOut size={16} />
-              </button>
-            </div>
-          ) : (
-            <ConnectButton
-              client={client}
-              wallets={wallets}
-              connectModal={{ size: "wide" }}
-            />
-          )}
+            ) : (
+              <div className="text-center">
+                <ConnectButton
+                  client={client}
+                  wallets={wallets}
+                  connectModal={{ size: "wide" }}
+                  theme={darkMode ? "dark" : "light"}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
         {/* Chat Header */}
-        <div className="bg-white/80 dark:bg-slate-900/70 border-b border-slate-200/70 dark:border-slate-800/70 backdrop-blur p-4 sm:p-5 flex items-center justify-between">
-          <div className="flex items-center">
-            <div className="mr-3">
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-            </div>
-            <div>
-              <h2 className="font-medium text-slate-900 dark:text-slate-100">
-                {getConversationTitle(activeConversation)}
-              </h2>
-              {isGeneralActive ? (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {onlineUsers} online
-                </p>
-              ) : (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Direct Message
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={toggleTheme}
-              className="p-2 rounded-lg hover:bg-slate-100/70 dark:hover:bg-slate-800/70 text-slate-500 dark:text-slate-300"
-              aria-label="Toggle dark mode"
-            >
-              {darkMode ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
-            <button className="p-2 rounded-lg hover:bg-slate-100/70 dark:hover:bg-slate-800/70 text-slate-500 dark:text-slate-300">
-              <Search size={18} />
-            </button>
-            <div className="flex items-center relative">
+        <header className="sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 border-b border-slate-200/50 dark:border-slate-800/50 backdrop-blur-xl p-4 lg:p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
               <button
-                className="p-2 rounded-lg hover:bg-slate-100/70 dark:hover:bg-slate-800/70 text-slate-500 dark:text-slate-300 ml-1"
-                onClick={() => setShowDropdown((prev) => !prev)}
+                className="p-2 hover:bg-slate-100/50 dark:hover:bg-slate-800/50 rounded-xl transition-colors"
+                onClick={() => setIsSidebarOpen(true)}
+                aria-label="Open sidebar"
               >
-                <MoreVertical size={18} />
+                <Users
+                  size={20}
+                  className="text-slate-500 dark:text-slate-400"
+                />
               </button>
-              {showDropdown && (
-                <div className="absolute right-0 top-10 bg-white/95 dark:bg-slate-900/95 border border-slate-200/70 dark:border-slate-700/70 shadow-xl rounded-lg py-2 z-20 min-w-[140px]">
-                  {userAddress && (
-                    <button
-                      onClick={() => {
-                        handleDisconnect();
-                        setShowDropdown(false);
-                      }}
-                      className="w-full text-left px-4 py-2 text-slate-700 dark:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-slate-800/70"
-                    >
-                      Disconnect
-                    </button>
+              <div className="flex items-center gap-3">
+                <div
+                  className={`p-2 rounded-xl ${
+                    isGeneralActive
+                      ? "bg-gradient-to-r from-blue-500 to-indigo-500"
+                      : "bg-gradient-to-r from-emerald-500 to-teal-500"
+                  }`}
+                >
+                  {isGeneralActive ? (
+                    <Hash size={20} className="text-white" />
+                  ) : (
+                    <MessageCircle size={20} className="text-white" />
                   )}
-                  {/* Add more dropdown items here if needed */}
                 </div>
-              )}
+                <div>
+                  <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                    {getConversationTitle(activeConversation)}
+                  </h1>
+                  <div className="flex items-center gap-3 text-sm">
+                    <div className="flex items-center gap-1">
+                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      <span className="text-slate-500 dark:text-slate-400">
+                        {onlineUsers} online
+                      </span>
+                    </div>
+                    {isGeneralActive && (
+                      <div className="flex items-center gap-1 text-sky-500">
+                        <Shield size={14} />
+                        <span className="text-xs">Encrypted</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleTheme}
+                className="p-2.5 hover:bg-slate-100/50 dark:hover:bg-slate-800/50 rounded-xl transition-colors"
+                aria-label="Toggle theme"
+              >
+                {darkMode ? (
+                  <Sun size={20} className="text-amber-500" />
+                ) : (
+                  <Moon size={20} className="text-slate-500" />
+                )}
+              </button>
+              <div ref={headerMenuRef} className="relative">
+                <button
+                  className="p-2.5 hover:bg-slate-100/50 dark:hover:bg-slate-800/50 rounded-xl transition-colors"
+                  onClick={() => setShowHeaderMenu((prev) => !prev)}
+                  aria-label="Open menu"
+                >
+                  <MoreVertical
+                    size={20}
+                    className="text-slate-500 dark:text-slate-400"
+                  />
+                </button>
+                {showHeaderMenu && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800/70 rounded-xl shadow-xl overflow-hidden z-50">
+                    {userAddress ? (
+                      <button
+                        onClick={() => {
+                          handleDisconnect();
+                          setShowHeaderMenu(false);
+                        }}
+                        className="w-full text-left px-4 py-3 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-slate-800/70 transition-colors"
+                      >
+                        Disconnect
+                      </button>
+                    ) : (
+                      <div className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">
+                        Connect wallet to see options.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        </header>
 
         {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/40 dark:bg-slate-900/20">
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6 bg-gradient-to-b from-white/50 to-slate-50/50 dark:from-slate-900/50 dark:to-slate-900">
           {!userAddress ? (
-            <div className="h-full flex flex-col items-center justify-center text-center">
-              <div className="w-16 h-16 rounded-full bg-white/80 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 flex items-center justify-center mb-4">
-                <User size={32} className="text-slate-400" />
+            <div className="h-full flex flex-col items-center justify-center text-center px-4">
+              <div className="relative mb-8">
+                <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-sky-100 to-blue-100 dark:from-slate-800 dark:to-slate-900 border-2 border-white/80 dark:border-slate-800/80 shadow-xl flex items-center justify-center">
+                  <User size={48} className="text-sky-500 dark:text-sky-400" />
+                </div>
+                <div className="absolute -top-2 -right-2 w-12 h-12 rounded-2xl bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center shadow-lg">
+                  <Bot size={24} className="text-white" />
+                </div>
               </div>
-              <h3 className="text-lg font-medium text-slate-700 dark:text-slate-200 mb-2">
-                Connect your wallet to chat
-              </h3>
-              <p className="text-slate-500 dark:text-slate-400 max-w-md mb-4">
-                Please connect your wallet to start chatting with others and use
-                the AI assistant.
+              <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mb-3">
+                Welcome to Chatverse
+              </h2>
+              <p className="text-slate-600 dark:text-slate-400 max-w-md mb-8">
+                Connect your wallet to start secure, encrypted conversations
+                with the community and AI assistant.
               </p>
               <ConnectButton
                 client={client}
                 wallets={wallets}
                 connectModal={{ size: "wide" }}
+                theme={darkMode ? "dark" : "light"}
               />
             </div>
           ) : activeMessages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center">
-              <div className="w-16 h-16 rounded-full bg-white/80 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 flex items-center justify-center mb-4">
-                <Bot size={32} className="text-slate-400" />
+            <div className="h-full flex flex-col items-center justify-center text-center px-4">
+              <div className="relative mb-8">
+                <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-slate-100 to-slate-50 dark:from-slate-800 dark:to-slate-900 border-2 border-white/80 dark:border-slate-800/80 shadow-xl flex items-center justify-center">
+                  <MessageCircle size={48} className="text-slate-400" />
+                </div>
+                <div className="absolute -bottom-2 -right-2 w-12 h-12 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-500 flex items-center justify-center shadow-lg">
+                  <Sparkles size={24} className="text-white" />
+                </div>
               </div>
-              <h3 className="text-lg font-medium text-slate-700 dark:text-slate-200 mb-2">
-                {isGeneralActive ? "Welcome to the chat!" : "No messages yet"}
-              </h3>
-              <p className="text-slate-500 dark:text-slate-400 max-w-md">
+              <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mb-3">
+                {isGeneralActive
+                  ? "Welcome to General Chat!"
+                  : "Direct Message"}
+              </h2>
+              <p className="text-slate-600 dark:text-slate-400 max-w-md">
                 {isGeneralActive ? (
                   <>
-                    Start a conversation by typing a message below. Type{" "}
-                    <span className="bg-slate-200/70 dark:bg-slate-800/70 px-1.5 py-0.5 rounded text-sm">
+                    Start chatting with the community. Type{" "}
+                    <span className="font-medium text-sky-600 dark:text-sky-400">
                       @agent
                     </span>{" "}
-                    followed by your question to get help from the AI assistant.
+                    to get AI assistance.
                   </>
                 ) : (
-                  "Start the conversation by sending the first message."
+                  "Send your first message to start the conversation."
                 )}
               </p>
             </div>
           ) : (
-            <div>
+            <div className="max-w-5xl mx-auto">
               {activeMessages.map((msg, idx) => (
                 <MessageBubble key={idx} msg={msg} idx={idx} />
               ))}
               <TypingIndicator />
               {isGeneralActive && isAgentThinking && (
-                <div className="flex justify-start mb-4">
-                  <div className="max-w-[85%] sm:max-w-md bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-700/70 rounded-2xl rounded-bl-md px-4 py-3 backdrop-blur">
-                    <div className="flex items-center">
-                      <div className="animate-pulse flex space-x-2">
-                        <div className="w-2 h-2 bg-slate-400 dark:bg-slate-500 rounded-full"></div>
-                        <div className="w-2 h-2 bg-slate-400 dark:bg-slate-500 rounded-full"></div>
-                        <div className="w-2 h-2 bg-slate-400 dark:bg-slate-500 rounded-full"></div>
+                <div className="flex justify-start mb-6">
+                  <div className="max-w-[90%] lg:max-w-2xl bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 border border-purple-200/50 dark:border-purple-800/50 rounded-2xl px-5 py-4 shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <div className="flex space-x-1">
+                        <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+                        <div
+                          className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"
+                          style={{ animationDelay: "0.2s" }}
+                        ></div>
+                        <div
+                          className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"
+                          style={{ animationDelay: "0.4s" }}
+                        ></div>
                       </div>
-                      <span className="text-xs text-slate-500 dark:text-slate-400 ml-2">
-                        AI Agent is thinking...
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <Bot size={16} className="text-purple-500" />
+                        <span className="text-sm font-medium text-purple-700 dark:text-purple-300">
+                          AI Agent is thinking...
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1192,57 +1386,64 @@ function Home() {
               <div ref={chatEndRef} />
             </div>
           )}
-        </div>
+        </main>
 
         {/* Input Area */}
         {userAddress && (
-          <div className="bg-white/80 dark:bg-slate-900/70 border-t border-slate-200/70 dark:border-slate-800/70 backdrop-blur p-4 sm:p-5">
-            <ReplyPreview
-              replyTo={replyingTo}
-              onCancel={() => setReplyingTo(null)}
-            />
+          <footer className="sticky bottom-0 z-30 bg-white/80 dark:bg-slate-900/80 border-t border-slate-200/50 dark:border-slate-800/50 backdrop-blur-xl p-4 lg:p-6">
+            <div className="max-w-5xl mx-auto">
+              <ReplyPreview
+                replyTo={replyingTo}
+                onCancel={() => setReplyingTo(null)}
+              />
 
-            <div className="flex items-center">
-              <button className="p-2 rounded-lg hover:bg-slate-100/70 dark:hover:bg-slate-800/70 text-slate-500 dark:text-slate-300 mr-1">
-                <Paperclip size={20} />
-              </button>
+              <div className="flex items-end gap-3">
+                <div className="flex-1 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-700/50 rounded-2xl shadow-sm">
+                  <div className="flex items-center px-4 py-3">
+                    <button className="p-2 hover:bg-slate-100/50 dark:hover:bg-slate-800/50 rounded-lg transition-colors mr-2">
+                      <Paperclip size={20} className="text-slate-400" />
+                    </button>
 
-              <div className="flex-1 relative">
-                <input
-                  type="text"
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  placeholder="Type your message..."
-                  className="w-full px-4 py-3 bg-slate-100/80 dark:bg-slate-800/60 rounded-lg text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white/90 dark:focus:bg-slate-800 pr-12"
-                  disabled={!userAddress}
-                />
+                    <div className="flex-1">
+                      <textarea
+                        value={message}
+                        onChange={(e) => setMessage(e.target.value)}
+                        onKeyPress={handleKeyPress}
+                        placeholder="Type your message..."
+                        className="w-full bg-transparent text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none focus:outline-none min-h-[44px] max-h-32"
+                        rows="1"
+                        disabled={!userAddress}
+                      />
+                    </div>
 
-                <button className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
-                  <Smile size={20} />
+                    <button className="p-2 hover:bg-slate-100/50 dark:hover:bg-slate-800/50 rounded-lg transition-colors ml-2">
+                      <Smile size={20} className="text-slate-400" />
+                    </button>
+                  </div>
+
+                  <div className="px-4 py-3 border-t border-slate-200/50 dark:border-slate-700/50">
+                    <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                      <div className="flex items-center gap-2">
+                        <span className="flex items-center gap-1">
+                          <Bot size={12} />
+                          Type @agent for AI help
+                        </span>
+                      </div>
+                      <div>{message.length}/500</div>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={sendMessage}
+                  disabled={!message.trim() || !userAddress}
+                  className="p-4 bg-gradient-to-r from-sky-500 to-blue-500 text-white rounded-2xl hover:from-sky-600 hover:to-blue-600 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-sm hover:shadow"
+                >
+                  <Send size={20} />
                 </button>
               </div>
-
-              <button
-                onClick={sendMessage}
-                disabled={!message.trim() || !userAddress}
-                className="ml-3 p-3 bg-sky-600 dark:bg-sky-500 text-white rounded-lg hover:bg-sky-700 dark:hover:bg-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Send size={20} />
-              </button>
             </div>
-
-            <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 flex justify-between">
-              <div>
-                Type{" "}
-                <span className="bg-slate-100/70 dark:bg-slate-800/70 px-1.5 py-0.5 rounded">
-                  @agent
-                </span>{" "}
-                to ask the AI for help
-              </div>
-              <div>{message.length}/500</div>
-            </div>
-          </div>
+          </footer>
         )}
       </div>
     </div>
